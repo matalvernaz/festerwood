@@ -260,8 +260,8 @@ export function render(state) {
 
   const ss = E.spreadStats(state);
   el.vitals.textContent = ss.stalling
-    ? `⚠ Infectivity ×${fmt(ss.infectivityMult)}, lethality ×${fmt(ss.lethalityMult)}. Your hosts are dying faster than they spread it — the plague is burning out. Ease off lethality, or Wither and rebuild leaner.`
-    : `Infectivity ×${fmt(ss.infectivityMult)}, lethality ×${fmt(ss.lethalityMult)}. Spreading nicely.`;
+    ? `Plague vitals — infectivity ×${fmt(ss.infectivityMult)}, lethality ×${fmt(ss.lethalityMult)}. Warning: your hosts are dying faster than they spread it, so the plague is burning out. Ease off lethality, or Wither and rebuild leaner.`
+    : `Plague vitals — infectivity ×${fmt(ss.infectivityMult)}, lethality ×${fmt(ss.lethalityMult)}. Spreading nicely.`;
 
   el.biomass.textContent = `Biomass available: ${fmt(state.biomass)}.`;
   el.strain.textContent = `Strains banked: ${fmt(state.strains)}.`;
@@ -297,10 +297,10 @@ function renderGenerators(state, sporeRate) {
     const n = E.maxAffordable(state, g.id);
     const e1 = state.spores.lt(c1) ? eta(c1, state.spores, sporeRate) : null;
 
-    setBtn(ref.b1, `Buy 1 — ${fmt(c1)} spores${e1 ? ` (~${e1})` : ''}`, state.spores.lt(c1));
-    setBtn(ref.b10, `Buy 10 — ${fmt(c10)} spores`, state.spores.lt(c10));
+    setBtn(ref.b1, `Buy 1 ${g.name} — ${fmt(c1)} spores${e1 ? ` (~${e1})` : ''}`, state.spores.lt(c1));
+    setBtn(ref.b10, `Buy 10 ${g.name} — ${fmt(c10)} spores`, state.spores.lt(c10));
     const canMax = n.gt(0);
-    setBtn(ref.bmax, canMax ? `Max (${fmt(n)}) — ${fmt(E.generatorCost(state, g.id, n))} spores` : 'Max — none affordable', !canMax);
+    setBtn(ref.bmax, canMax ? `Buy max ${g.name} (${fmt(n)}) — ${fmt(E.generatorCost(state, g.id, n))} spores` : `Buy max ${g.name} — none affordable yet`, !canMax);
   }
 }
 
@@ -439,7 +439,7 @@ function onKey(ev) {
   else if (k === 'r') doRecap();
   else if (k === 'e') doExpand();
   else if (k === 'w') doWither();
-  else if (k === '?' || k === 'h') { $('help').focus(); announce('How to play.', true); }
+  else if (k === '?' || k === 'h') { const d = $('help-sec'); if (d) d.open = true; $('help').focus(); announce('How to play.', true); }
   else return;
 
   ev.preventDefault();
@@ -534,6 +534,6 @@ function doRecap() {
 }
 
 export function rotateNews(state) {
-  el.news.textContent = NEWS[state.newsIndex % NEWS.length];
+  el.news.textContent = 'Newsflash: ' + NEWS[state.newsIndex % NEWS.length];
   state.newsIndex = (state.newsIndex + 1) % NEWS.length;
 }

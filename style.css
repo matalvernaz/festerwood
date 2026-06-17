@@ -19,6 +19,10 @@
 
 * { box-sizing: border-box; }
 
+/* The hidden attribute MUST win over author display rules (e.g. .mut-node{display:block}),
+   or "hidden" locked buttons leak into the page as empty, unlabelled controls. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   padding: 0 1rem 4rem;
@@ -40,6 +44,16 @@ section {
   padding: 0.85rem 1rem 1.1rem;
   margin: 0.9rem 0;
 }
+
+/* Collapsible panels (How to play, Settings, Achievements) read like the sections. */
+details {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.6rem 1rem;
+  margin: 0.9rem 0;
+}
+summary { cursor: pointer; font-size: 1.2rem; font-weight: 600; }
 
 h2 { margin: 0 0 0.4rem; font-size: 1.2rem; }
 h3 { margin: 0.8rem 0 0.3rem; font-size: 1rem; color: var(--accent); }
