@@ -42,6 +42,6 @@ export const BALANCE = {
 
   // --- prestige (Wither / Expand -> Strains) ---
   STRAIN_DIVISOR: new Decimal(100), // deaths-per-strain scaling base
-  STRAIN_EXP: 0.5, // strains gained on Wither = (totalDead / DIVISOR)^EXP × (1 + highestArena)
+  STRAIN_EXP: 0.34, // strains gained on Wither = (totalDead / DIVISOR)^EXP × (1 + highestArena). Cube-root-ish so the World isn't a 50k jackpot that dwarfs every other arena.
   MIN_DEAD_TO_WITHER: new Decimal(100), // below this, a Wither yields nothing
 };

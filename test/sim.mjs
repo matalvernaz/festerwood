@@ -88,7 +88,7 @@ function run(lethalMult) {
   assert(canExpand(e), 'an exhausted arena allows Expand');
   const res = expand(e);
   assert(res !== null && e.arenaIndex === 1, 'Expand advances to the next arena');
-  assert(e.strains.gte(0), 'Expand awards Strains');
+  assert(e.stats.highestArena === 1, 'Expand records the highest arena reached');
 }
 
 // --- big-number speech sanity (no NaN / no raw "ee" leaking) -------------

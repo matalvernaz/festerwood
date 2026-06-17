@@ -6,9 +6,10 @@
 
 import { defaultState } from './state.js';
 import { recompute, tick, enterArena } from './engine.js';
-import { initA11y, announce, setVerbosity } from './a11y.js';
+import { ARENAS } from './content.js';
+import { initA11y, announce, setVerbosity, fmt } from './a11y.js';
 import { load, save } from './save.js';
-import { buildUI, render, rotateNews } from './ui.js';
+import { buildUI, render, rotateNews, pushRecent } from './ui.js';
 import { BALANCE } from './balance.js';
 
 const loaded = load();
@@ -29,9 +30,15 @@ let greeted = false;
 if (loaded && state.lastTick) {
   const offline = (Date.now() - state.lastTick) / 1000;
   if (offline > 5) {
-    tick(state, offline); // capped at BALANCE.OFFLINE_CAP_SECONDS inside
+    const before = { spores: state.spores, biomass: state.biomass, dead: state.stats.totalDeadAllTime };
+    const evs = tick(state, offline); // capped at BALANCE.OFFLINE_CAP_SECONDS inside
     render(state);
-    announce('While you were away, the rot quietly continued. Welcome back.', true);
+    const mins = offline < 90 ? `${Math.round(offline)}s` : offline < 5400 ? `${Math.round(offline / 60)}m` : `${Math.round(offline / 3600)}h`;
+    let msg = `Welcome back. While you were away (${mins}): +${fmt(state.spores.sub(before.spores))} spores, +${fmt(state.biomass.sub(before.biomass))} biomass, ${fmt(state.stats.totalDeadAllTime.sub(before.dead))} more dead.`;
+    const cleared = evs.find(e => e.type === 'arena' || e.type === 'victory');
+    if (cleared) msg += ' ' + cleared.text;
+    announce(msg, true);
+    pushRecent(state, msg);
     greeted = true;
   }
 }
@@ -50,7 +57,7 @@ function loop(now) {
   last = now;
 
   const events = tick(state, dt);
-  for (const e of events) announce(e.text, e.assertive);
+  for (const e of events) { announce(e.text, e.assertive); pushRecent(state, e.text); }
   render(state);
 
   saveAcc += dt;

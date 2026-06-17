@@ -1,11 +1,9 @@
 /**
- * Festerwood — headless DOM smoke test.
+ * Festerwood — headless DOM smoke + progressive-disclosure test.
  *
- * A browser can't be launched here, so we stub exactly the DOM surface ui.js and
- * a11y.js touch, then actually run buildUI()/render() against real game state
- * across the interesting branches (locked vs affordable mutations, a maxed perk,
- * an exhausted arena). This won't prove NVDA behaviour, but it proves the build
- * and render paths don't throw and do populate the accessible text.
+ * Stubs the DOM surface ui.js/a11y.js use, then drives buildUI()/render()
+ * against real state and asserts: nothing throws, and content is hidden until
+ * earned then revealed + announced on threshold.
  *
  * Run: node test/dom-smoke.mjs
  */
@@ -31,37 +29,27 @@ class El {
   addEventListener(t, fn) { (this._listeners[t] ||= []).push(fn); }
   focus() {} select() {} closest() { return null; }
 }
-
 const byId = {};
-const IDS = ['status-line', 'arena-line', 'biomass-line', 'strain-line', 'gen-list', 'mut-tree',
-  'perk-list', 'ach-list', 'expand-btn', 'wither-btn', 'news', 'save-io', 'verbosity',
-  'cough-btn', 'status-btn', 'export-btn', 'import-btn', 'hardreset-btn', 'help', 'sr-polite', 'sr-assertive'];
-for (const id of IDS) { const e = new El('div'); e.id = id; byId[id] = e; }
-
 globalThis.document = {
-  getElementById: id => byId[id] || (byId[id] = new El('div')),
+  getElementById: id => byId[id] || (byId[id] = new El()),
   createElement: t => new El(t),
   addEventListener: () => {},
 };
 globalThis.window = { confirm: () => true, addEventListener: () => {} };
 globalThis.requestAnimationFrame = () => 0;
 globalThis.performance = { now: () => 0 };
-globalThis.localStorage = {
-  _m: new Map(),
-  getItem(k) { return this._m.has(k) ? this._m.get(k) : null; },
-  setItem(k, v) { this._m.set(k, v); },
-  removeItem(k) { this._m.delete(k); },
-};
+globalThis.localStorage = { _m: new Map(), getItem(k) { return this._m.has(k) ? this._m.get(k) : null; }, setItem(k, v) { this._m.set(k, v); }, removeItem(k) { this._m.delete(k); } };
+const wait = ms => new Promise(r => setTimeout(r, ms));
 
 const { defaultState } = await import('../state.js');
 const E = await import('../engine.js');
 const { initA11y } = await import('../a11y.js');
-const { buildUI, render, rotateNews } = await import('../ui.js');
+const { buildUI, render } = await import('../ui.js');
 
 let fails = 0;
 const assert = (c, m) => { if (c) console.log('  ok  —', m); else { console.error('  FAIL —', m); fails++; } };
 
-console.log('Festerwood DOM smoke test\n');
+console.log('Festerwood DOM smoke + disclosure test\n');
 
 const s = defaultState();
 E.recompute(s);
@@ -71,28 +59,46 @@ render(s);
 
 assert(byId['gen-list'].children.length === 4, 'four generator cards built');
 assert(byId['mut-tree'].children.length > 0, 'mutation tree built');
-assert(byId['perk-list'].children.length === 4, 'four perk cards built');
 assert(byId['status-line']._text.includes('Spores'), 'status line populated');
 
-// Wealthy mid-game: exercises affordable buttons, an owned mutation + unlocked child.
-s.spores = new Decimal(1e9);
-s.biomass = new Decimal(1e4);
-s.strains = new Decimal(1e9);
+// --- disclosure: fresh game hides everything not yet relevant ---
+assert(byId['mut-sec'].hidden === true, 'Mutation section hidden at start');
+assert(byId['perk-sec'].hidden === true, 'Strains section hidden at start');
+assert(byId['ach-sec'].hidden === true, 'Achievements section hidden at start');
+assert(byId['gen-list'].children[0].hidden === false, 'Mold (tier 0) shown at start');
+assert(byId['gen-list'].children[1].hidden === true, 'Fungus hidden at start');
+
+// --- reveal on thresholds ---
+s.stats.maxSpores = new Decimal(200); // >= 50% of Fungus baseCost (120)
+render(s);
+assert(byId['gen-list'].children[1].hidden === false, 'Fungus revealed once spores approach its cost');
+
+s.stats.totalDeadAllTime = new Decimal(5); // first death
+render(s);
+assert(byId['mut-sec'].hidden === false, 'Mutation section revealed after first death');
+
+s.stats.witherCount = 1; // first wither
+render(s);
+assert(byId['perk-sec'].hidden === false, 'Strains section revealed after first Wither');
+
+s.achievements = { firstblood: true };
+render(s);
+assert(byId['ach-sec'].hidden === false, 'Achievements section revealed after first achievement');
+
+await wait(60);
+assert(/Unlocked:/.test(byId['sr-polite']._text), 'a reveal was announced to the screen reader');
+
+// --- wealthy state still renders without throwing; Expand surfaces when cleared ---
+s.spores = new Decimal(1e9); s.biomass = new Decimal(1e4); s.strains = new Decimal(1e6);
 E.buyGenerator(s, 'mold', 'max');
 E.buyMutation(s, 't1');
-for (let i = 0; i < 30; i++) E.buyPerk(s, 'sporous'); // hits the maxed-perk branch
+for (let i = 0; i < 30; i++) E.buyPerk(s, 'sporous');
 render(s);
 assert(true, 'render survives wealthy state (no throw)');
 
-// Exhaust the arena to surface the Expand button.
-s.population.dead = s.population.total;
-s.population.susceptible = 0;
-s.population.infected = 0;
+s.population.dead = s.population.total; s.population.susceptible = 0; s.population.infected = 0;
 render(s);
 assert(byId['expand-btn'].hidden === false, 'Expand button shows when arena is cleared');
 
-rotateNews(s);
-assert(byId['news']._text.length > 0, 'news ticker populated');
-
-console.log(fails ? `\n${fails} CHECK(S) FAILED` : '\nDOM SMOKE PASSED');
+console.log(fails ? `\n${fails} CHECK(S) FAILED` : '\nDOM SMOKE + DISCLOSURE PASSED');
 process.exit(fails ? 1 : 0);

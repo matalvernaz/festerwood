@@ -45,6 +45,7 @@ export function defaultState() {
       witherCount: 0,
       highestArena: 0,
       playSeconds: 0,
+      maxSpores: new Decimal(0), // lifetime peak — makes producer reveals sticky
     },
 
     settings: {
@@ -54,6 +55,13 @@ export function defaultState() {
 
     // derived; never trusted from a save (recomputed on load)
     mult: null,
+
+    // progressive disclosure + sensing
+    seen: {}, // reveal-keys already announced (lifetime; stops re-announcing on reload)
+    recentLog: [], // recent notable events, for the recap key
+    recentReadIdx: 0, // how far through recentLog the player has heard
+    clearEtaSeconds: Infinity, // derived each tick: time to clear the current arena
+    _arenaMilestones: [], // %-infected pings already fired for the current arena
 
     // bookkeeping
     lastTick: 0, // ms epoch, for offline catch-up

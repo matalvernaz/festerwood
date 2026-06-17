@@ -74,6 +74,16 @@ export function spreadStats(state) {
   };
 }
 
+/** Estimated biomass income per second right now (Decimal) — for "affordable in ~Ns" readouts. */
+export function biomassRate(state) {
+  const { lethality } = epiParams(state);
+  const inf = state.population.infected;
+  const deathsPerSec = inf * (1 - Math.exp(-lethality));
+  return new Decimal(deathsPerSec).mul(BALANCE.BIOMASS_PER_DEATH)
+    .add(new Decimal(inf).mul(BALANCE.BIOMASS_PER_INFECTED))
+    .mul(state.mult.biomass);
+}
+
 // --------------------------------------------------------------------------
 // The tick
 // --------------------------------------------------------------------------
@@ -89,6 +99,7 @@ export function tick(state, dtSeconds) {
   if (dt <= 0) return events;
 
   state.stats.playSeconds += dt;
+  const startS = state.population.susceptible;
 
   let remaining = dt;
   while (remaining > 1e-9) {
@@ -98,6 +109,25 @@ export function tick(state, dtSeconds) {
   }
 
   state.sporesPerSec = currentSporeRate(state);
+  if (state.spores.gt(state.stats.maxSpores)) state.stats.maxSpores = state.spores;
+
+  // Clear ETA for the accessible arena readout: time until 95% ever-infected.
+  const pop = state.population;
+  const dS = (startS - pop.susceptible) / dt; // susceptibles consumed per second
+  const target = 0.05 * pop.total;
+  state.clearEtaSeconds = pop.susceptible <= target ? 0 : (dS > 1e-9 ? (pop.susceptible - target) / dS : Infinity);
+
+  // Progress milestones (skip trivially small arenas where they'd just be noise).
+  if (!state._arenaMilestones) state._arenaMilestones = [];
+  if (pop.total > 50) {
+    const everPct = ((pop.total - pop.susceptible) / pop.total) * 100;
+    for (const thr of [50, 90]) {
+      if (everPct >= thr && !state._arenaMilestones.includes(thr)) {
+        state._arenaMilestones.push(thr);
+        events.push({ type: 'milestone', assertive: false, text: `${thr}% of ${ARENAS[state.arenaIndex].name} has caught it.` });
+      }
+    }
+  }
 
   if (!state._exhaustedAnnounced && isArenaExhausted(state.population)) {
     state._exhaustedAnnounced = true;
@@ -288,13 +318,11 @@ export function enterArena(state, idx) {
   const total = ARENAS[idx].population;
   state.population = { susceptible: total, infected: 0, dead: 0, total };
   state._exhaustedAnnounced = false;
+  state._arenaMilestones = [];
 }
 
-function strainsForExpand(arenaIndex) {
-  return new Decimal(Math.floor(Math.pow(1 + arenaIndex, 1.5)));
-}
-
-function strainsForWither(state) {
+/** Strains a Wither would pay out right now. Exported so the UI can preview it and gate the button. */
+export function witherGain(state) {
   const dead = state.totalDeadThisRun;
   if (dead.lt(BALANCE.MIN_DEAD_TO_WITHER)) return new Decimal(0);
   return dead.div(BALANCE.STRAIN_DIVISOR).pow(BALANCE.STRAIN_EXP).mul(1 + state.stats.highestArena).floor();
@@ -304,16 +332,18 @@ export function canExpand(state) {
   return isArenaExhausted(state.population) && state.arenaIndex < ARENAS.length - 1;
 }
 
-/** Advance to the next arena (keeps generators/mutations — the climb is continuous). Grants a few Strains. */
+/**
+ * Advance to the next arena. Pure progression — keeps producers/mutations and
+ * pays NO strains (Wither is the sole strain source, so "tiny pocket-change
+ * strains" can't muddy the prestige economy).
+ */
 export function expand(state) {
   if (!canExpand(state)) return null;
   const next = state.arenaIndex + 1;
-  const gain = strainsForExpand(next);
-  state.strains = state.strains.add(gain);
   state.stats.highestArena = Math.max(state.stats.highestArena, next);
   enterArena(state, next);
   recompute(state);
-  return { gain, arena: ARENAS[next] };
+  return { arena: ARENAS[next] };
 }
 
 /** You may Wither once you've made any real progress. */
@@ -324,7 +354,7 @@ export function canWither(state) {
 /** Hard reset of the run layers (generators, mutations, spores, biomass, arena) in exchange for a big Strains payout. */
 export function wither(state) {
   if (!canWither(state)) return null;
-  const gain = strainsForWither(state);
+  const gain = witherGain(state);
   state.strains = state.strains.add(gain);
   state.stats.witherCount++;
 
