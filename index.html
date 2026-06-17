@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Festerwood — a lovingly disgusting plague</title>
+  <link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+  <a class="skip" href="#status-sec">Skip to status</a>
+
+  <header>
+    <h1>Festerwood</h1>
+    <p class="tagline">A lovingly disgusting little plague. Grow it. Share it. Don't wash your hands.</p>
+  </header>
+
+  <!-- Screen-reader live regions: announcements only, never per-tick spam. -->
+  <div id="sr-polite" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <div id="sr-assertive" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+
+  <p id="news" class="news"></p>
+
+  <main>
+    <section id="status-sec" aria-labelledby="status-h">
+      <h2 id="status-h">Status</h2>
+      <p id="status-line">…</p>
+      <div class="row">
+        <button id="cough-btn" type="button">Cough (C)</button>
+        <button id="status-btn" type="button">Read status aloud (S)</button>
+      </div>
+    </section>
+
+    <section id="arena-sec" aria-labelledby="arena-h">
+      <h2 id="arena-h">Arena</h2>
+      <p id="arena-line">…</p>
+      <p id="vitals" class="subhead">…</p>
+      <div class="row">
+        <button id="expand-btn" type="button" hidden>Expand (E)</button>
+        <button id="wither-btn" type="button" hidden>Wither (W)</button>
+      </div>
+    </section>
+
+    <section aria-labelledby="gen-h">
+      <h2 id="gen-h">Producers</h2>
+      <p class="hint">Keys 1–4 grow one of each; M buys as many as you can afford.</p>
+      <ul id="gen-list" class="cards"></ul>
+    </section>
+
+    <section aria-labelledby="mut-h">
+      <h2 id="mut-h">Mutation Tree</h2>
+      <p id="biomass-line" class="subhead">…</p>
+      <div id="mut-tree"></div>
+    </section>
+
+    <section aria-labelledby="perk-h">
+      <h2 id="perk-h">Strains — permanent perks</h2>
+      <p id="strain-line" class="subhead">…</p>
+      <ul id="perk-list" class="cards"></ul>
+    </section>
+
+    <section aria-labelledby="ach-h">
+      <h2 id="ach-h">Achievements</h2>
+      <ul id="ach-list" class="cards"></ul>
+    </section>
+
+    <section aria-labelledby="set-h">
+      <h2 id="set-h">Settings &amp; Save</h2>
+      <p>
+        <label for="verbosity">Spoken announcements:</label>
+        <select id="verbosity">
+          <option value="quiet">Quiet</option>
+          <option value="normal" selected>Normal</option>
+          <option value="chatty">Chatty</option>
+        </select>
+      </p>
+      <div class="row">
+        <button id="export-btn" type="button">Export save</button>
+        <button id="import-btn" type="button">Import save</button>
+        <button id="hardreset-btn" type="button">Hard reset</button>
+      </div>
+      <textarea id="save-io" rows="3" aria-label="Save data (copy out, or paste in then press Import)" hidden></textarea>
+    </section>
+
+    <section aria-labelledby="help-h">
+      <h2 id="help-h">How to play</h2>
+      <div id="help" tabindex="-1"></div>
+    </section>
+  </main>
+
+  <!-- break_eternity installs the global `Decimal`; it must run before the modules. -->
+  <script src="vendor/break_eternity.min.js"></script>
+  <script type="module" src="main.js?v=1"></script>
+</body>
+</html>
