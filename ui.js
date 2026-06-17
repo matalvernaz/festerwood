@@ -21,6 +21,7 @@ const PERK_BY_ID = Object.fromEntries(PERKS.map(p => [p.id, p]));
 const MUT_BRANCHES = ['Transmission', 'Symptoms', 'Resilience', 'Apex'];
 
 let game = null;
+let lastCoughAt = 0; // throttles cough announcements so holding C doesn't flood the screen reader
 const el = {};
 const genRefs = {}; // id -> {name, b1, b10, bmax}
 const mutRefs = {}; // id -> button
@@ -320,7 +321,7 @@ function onKey(ev) {
   if (k === 'c') doCough();
   else if (k >= '1' && k <= '4') {
     const g = GENERATORS[Number(k) - 1];
-    if (g) { const r = E.buyGenerator(game, g.id, 1); if (r.bought.gt(0)) save(game); render(game); }
+    if (g) { const r = E.buyGenerator(game, g.id, 1); if (r.bought.gt(0)) { announce(`Grew a ${GEN_NAME[g.id]}.`); save(game); } else announce(`Not enough spores for a ${GEN_NAME[g.id]}.`); render(game); }
   } else if (k === 'm') {
     let any = false;
     for (const g of GENERATORS) if (E.buyGenerator(game, g.id, 'max').bought.gt(0)) any = true;
@@ -357,8 +358,14 @@ function onBuyPerk(id) {
 
 function doCough() {
   const r = E.cough(game);
-  if (game.settings.announceVerbosity === 'chatty') {
-    announce(r.seeded > 0 ? 'A cough. Someone nearby catches it.' : 'A cough. More spores.');
+  // Always confirm the primary action audibly (a silent cough reads as "broken"),
+  // but throttle so holding C doesn't flood the screen reader.
+  if (game.settings.announceVerbosity !== 'quiet') {
+    const now = Date.now();
+    if (now - lastCoughAt > 800) {
+      lastCoughAt = now;
+      announce(r.seeded > 0 ? `Cough. ${fmt(game.spores)} spores, and someone caught it.` : `Cough. ${fmt(game.spores)} spores.`);
+    }
   }
   render(game);
 }

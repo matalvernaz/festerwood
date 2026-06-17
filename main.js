@@ -25,13 +25,19 @@ buildUI(state);
 render(state);
 
 // Offline catch-up — only for a genuine returning save.
+let greeted = false;
 if (loaded && state.lastTick) {
   const offline = (Date.now() - state.lastTick) / 1000;
   if (offline > 5) {
     tick(state, offline); // capped at BALANCE.OFFLINE_CAP_SECONDS inside
     render(state);
     announce('While you were away, the rot quietly continued. Welcome back.', true);
+    greeted = true;
   }
+}
+// Orient a screen-reader user on arrival — otherwise the page is silent on load.
+if (!greeted) {
+  announce('Festerwood. You are a small and ambitious disease. Press C to cough, S to hear your status, and the question mark key for help.', true);
 }
 state.lastTick = Date.now();
 
