@@ -59,17 +59,18 @@ buildUI(s);
 render(s);
 
 assert(byId['evo-list'].children.length === EVOLUTIONS.length, `evolution list built (${EVOLUTIONS.length} cards)`);
-assert(byId['status-line']._text.includes('Biomass'), 'status line populated with currencies');
+assert(byId['status-line']._text.includes('Infected'), 'status line leads with the infected count');
 
 // --- disclosure: fresh game hides everything not yet relevant ---
 assert(byId['evo-sec'].hidden === true, 'Evolutions section hidden at start');
 assert(byId['perk-sec'].hidden === true, 'Strains section hidden at start');
 assert(byId['ach-sec'].hidden === true, 'Achievements section hidden at start');
+assert(byId['wither-btn'].hidden === true, 'Wither button hidden at start');
 
 // --- reveal on thresholds ---
-s.stats.totalDeadAllTime = new Decimal(5); // first death
+s.biomass = new Decimal(100); // enough to be near the first evolution
 render(s);
-assert(byId['evo-sec'].hidden === false, 'Evolutions section revealed after first death');
+assert(byId['evo-sec'].hidden === false, 'Evolutions section revealed once biomass accrues');
 
 s.stats.witherCount = 1; // first wither
 render(s);
@@ -82,18 +83,19 @@ assert(byId['ach-sec'].hidden === false, 'Achievements section revealed after fi
 await wait(60);
 assert(/Unlocked:/.test(byId['sr-polite']._text), 'a reveal was announced to the screen reader');
 
-// --- wealthy state still renders without throwing; Expand surfaces when cleared ---
-s.biomass = new Decimal(1e12); s.strains = new Decimal(1e6);
-E.buyEvolution(s, 'e0');
-E.buyEvolution(s, 'e5'); // out of order: no tree
+// --- wealthy state still renders without throwing ---
+s.biomass = new Decimal(1e9); s.strains = new Decimal(1e6);
+E.buyEvolution(s, 'contagion');
+E.buyEvolution(s, 'potency');
 for (let i = 0; i < 30; i++) E.buyPerk(s, 'virulence');
 render(s);
 assert(true, 'render survives wealthy state (no throw)');
 assert(E.currentVirulence(s).gt(1), 'Virulence climbs with strain spending');
 
-s.population.dead = s.population.total; s.population.susceptible = 0; s.population.infected = 0;
+// --- Wither button surfaces once peak infected is high enough ---
+s.peakInfectedThisRun = new Decimal(1e9);
 render(s);
-assert(byId['expand-btn'].hidden === false, 'Expand button shows when arena is cleared');
+assert(byId['wither-btn'].hidden === false, 'Wither button shows once peak infected qualifies');
 
 console.log(fails ? `\n${fails} CHECK(S) FAILED` : '\nDOM SMOKE + DISCLOSURE PASSED');
 process.exit(fails ? 1 : 0);

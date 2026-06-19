@@ -73,30 +73,21 @@ function migrate(saved) {
   const base = defaultState();
   const merged = deepMerge(base, saved);
 
-  // v1 → v2: the whole game was rebuilt single-engine. An old save's RUN layer
-  // (spores, producers, biomass, tree mutations, current arena) is meaningless
-  // now, so reset the run. Keep the player's banked Strains and achievements +
-  // lifetime stats; the old perk levels (sporous/marrow/…) map to nothing in v2,
-  // so wipe them rather than leave inert ids — the Strains balance is the real
-  // carried-over progress. Then announce a one-time "world remade" notice.
-  if ((saved.version || 1) < 2) {
+  // Any pre-v3 save predates the pure-idle rework (zones, the S-I-D model, and
+  // the producer/tree economy all changed out). The RUN is meaningless now, so
+  // reset it — but keep what the player earned: banked Strains, perks (Virulence
+  // carries over from v2), achievements, and lifetime stats. Then announce a
+  // one-time "world remade" notice.
+  if ((saved.version || 1) < 3) {
+    merged.infected = base.infected;
     merged.biomass = new Decimal(0);
-    merged.totalDeadThisRun = new Decimal(0);
-    merged.totalEverInfectedThisRun = new Decimal(0);
     merged.evolutions = {};
-    merged.perks = {}; // old perk ids don't exist in v2; the banked strains carry over instead
-    merged.arenaIndex = 0;
-    merged.population = base.population; // reseat to the Henderson Household
-    merged._exhaustedAnnounced = false;
-    merged._arenaMilestones = [];
-    merged.clearEtaSeconds = Infinity;
-    // Drop fields deepMerge carried over from the old shape (its second loop
+    merged.peakInfectedThisRun = base.peakInfectedThisRun;
+    merged.milestonePow = 3;
+    // Drop fields deepMerge carried over from the old shapes (its second loop
     // copies keys absent from the new default).
-    delete merged.spores;
-    delete merged.generators;
-    delete merged.sporesPerSec;
-    delete merged.mutations;
-    if (merged.stats) delete merged.stats.maxSpores;
+    for (const dead of ['spores', 'sporesPerSec', 'generators', 'mutations', 'population', 'arenaIndex', 'totalDeadThisRun', 'totalEverInfectedThisRun', 'clearEtaSeconds', '_arenaMilestones', '_exhaustedAnnounced']) delete merged[dead];
+    if (merged.stats) { delete merged.stats.maxSpores; delete merged.stats.totalDeadAllTime; delete merged.stats.highestArena; }
     merged._worldRemade = true;
   }
 

@@ -1,11 +1,12 @@
 # Festerwood
 
-A lovingly disgusting little incremental game. You are a small, ambitious
-disease: cough yourself into a population, spread, harvest hosts for biomass,
-and evolve your way from one household to the whole wide world. Gross, whimsical,
-and — unusually for the genre — built to be fully playable with a screen reader.
+A lovingly disgusting little idle game. You are a small, ambitious, and
+self-replicating disease: the more infected you have, the faster you spread, so
+the number climbs on its own. Harvest hosts for biomass, evolve, and rot-and-regrow
+your way to ever-sillier numbers. Gross, whimsical, and — unusually for the genre —
+built to be fully playable with a screen reader.
 
-> *"Plague Tree, but funnier, deeper, and one you can actually play blind."*
+> *"Plague Tree, but funnier, and one you can actually play blind."*
 
 ## Play
 
@@ -19,17 +20,17 @@ python3 -m http.server 8000
 
 ## The loop (v1)
 
-One engine: the infection. No producers, no second currency to juggle.
+A pure idle. One number — **infected** — climbs on its own. No zones, no caps.
 
-- **Cough** to seed an infection; it then spreads on its own through an arena's
-  population: **Susceptible → Infected → Dead**.
-- Every host you infect yields **Biomass**.
-- Biomass buys **Evolutions** — a flat list that each simply make you spread
-  faster. Faster is always better; there's no trap pick.
-- Clear an arena to **Expand** to a bigger one, up to the whole World.
-- When a place turns stubborn, **Wither**: rot the run down for **Strains**, then
-  spend them on **Virulence** — a permanent, compounding spread boost. The wall
-  lives at the World; prestige is how you break through it.
+- The plague is **self-replicating**: growth is `baseSpread × spreadMult ×
+  infected^GROWTH_EXPONENT`. The exponent is below 1, so it accelerates as you grow
+  without instantly running to infinity. **Cough** for a manual burst early on.
+- The infected shed **Biomass**.
+- Biomass buys repeatable **Evolutions** — *Contagion* (spread faster) and
+  *Potency* (more biomass per host). Level them forever.
+- When the numbers get silly, **Wither**: rot the run to mulch for **Strains**,
+  then spend them on **Virulence** — a permanent, compounding spread boost. Rot,
+  regrow, faster each time. That's the long game.
 
 ## Accessibility
 
@@ -44,7 +45,7 @@ This is a first-class concern, not a coat of paint:
   to the…") instead of "ee15".
 
 **Keys:** <kbd>C</kbd> cough · <kbd>S</kbd> status · <kbd>R</kbd> recap ·
-<kbd>E</kbd> Expand · <kbd>W</kbd> Wither.
+<kbd>W</kbd> Wither.
 
 ## Tests
 
@@ -52,12 +53,12 @@ This is a first-class concern, not a coat of paint:
 node test/imports.mjs && node test/sim.mjs && node test/dom-smoke.mjs
 ```
 
-`sim.mjs` drives the pure engine headlessly — the single-engine loop, flat
-evolutions, prestige, big-number speech, and a **greedy-bot pacing harness** that
-prints arena clear times, the wall depth, and withers-to-World (the balance
-constants in `balance.js` are tuned from its output). `dom-smoke.mjs` stubs the
-DOM to check render + progressive disclosure; `imports.mjs` is the module-load
-canary.
+`sim.mjs` drives the pure engine headlessly — the self-replicating loop, that
+growth stays paced (no NaN/Infinity), repeatable evolutions, prestige, big-number
+speech, and an **idle pacing harness** that prints time-to-first-Wither, withers
+per few hours, and final Virulence/peak (the balance constants in `balance.js` are
+tuned from its output). `dom-smoke.mjs` stubs the DOM to check render + progressive
+disclosure; `imports.mjs` is the module-load canary.
 
 ## Architecture
 
@@ -67,10 +68,9 @@ Vanilla JS ES modules, no bundler. `break_eternity.js` (vendored) provides the
 | File | Role |
 |---|---|
 | `balance.js` | every tunable constant |
-| `content.js` | all content as data (evolutions, arenas, the Virulence perk, achievements, news) |
+| `content.js` | all content as data (evolutions, the Virulence perk, achievements, news) |
 | `state.js` | default state factory |
-| `population.js` | the S-I-D epidemic model |
-| `engine.js` | tick, recompute, buying, prestige — pure, no DOM |
+| `engine.js` | tick (paced self-replication), recompute, buying, prestige — pure, no DOM |
 | `a11y.js` | `announce()` + `speakNumber()`/`fmt()` |
 | `ui.js` | semantic DOM, render-in-place, hotkeys |
 | `save.js` | Decimal-aware save/load, export/import, migration |
@@ -78,10 +78,10 @@ Vanilla JS ES modules, no bundler. `break_eternity.js` (vendored) provides the
 
 ## Roadmap
 
-- **v1 (this):** the legible single engine — spread, biomass, a flat evolution
-  list, the arena ladder, and one prestige (Strains → Virulence).
-- **M2:** the **Mild/Nasty stance** (a real in-run decision — the lethality
-  trade-off, done legibly), the evolution **tree** growing out of the flat list,
-  automation/auto-buyers, events, a second prestige layer, more arenas.
+- **v1 (this):** the pure idle — self-replicating infected, repeatable evolutions
+  (Contagion/Potency), and one prestige (Strains → Virulence).
+- **M2:** more repeatable upgrades and a second prestige layer that rescales the
+  runaway (so late numbers stay meaningful), auto-buyers, events, soft-caps to
+  shape the prestige cadence.
 - **M3:** the race against humanity — a **cure** that fights back (the adversarial
   counter-currency).

@@ -5,17 +5,16 @@
  * Design rules that keep it accessible:
  *  - Every control is a real <button> / <select>; nothing is a clickable div.
  *  - All state that matters lives in each control's *text* (its accessible name):
- *    cost, owned, affordability, ETA-to-afford. Never colour-only. Status figures
+ *    level, cost, affordability, ETA-to-afford. Never colour-only. Status figures
  *    are plain readout text, never buttons.
  *  - Progressive disclosure: locked/future content is HIDDEN (`hidden`), not
- *    greyed — a screen reader should never have to tab past things that don't
- *    matter yet. New unlocks are announced once (politely), and a recap key
- *    reads "what changed since you last checked".
- *  - We update text/disabled/hidden in place every frame on a fixed set of
- *    nodes (no DOM churn), so a screen reader sees stable structure.
+ *    greyed. New unlocks are announced once (politely); a recap key reads "what
+ *    changed since you last checked".
+ *  - We update text/disabled/hidden in place every frame on a fixed set of nodes
+ *    (no DOM churn), so a screen reader sees stable structure.
  */
 
-import { EVOLUTIONS, ARENAS, PERKS, ACHIEVEMENTS, NEWS } from './content.js';
+import { EVOLUTIONS, PERKS, ACHIEVEMENTS, NEWS } from './content.js';
 import { fmt, speakNumber, announce, setVerbosity } from './a11y.js';
 import { save, exportSave, importSave, hardReset, writeRawSave } from './save.js';
 import * as E from './engine.js';
@@ -40,8 +39,7 @@ export function buildUI(state) {
   game = state;
 
   el.status = $('status-line');
-  el.arena = $('arena-line');
-  el.vitals = $('vitals');
+  el.rates = $('rates');
   el.biomass = $('biomass-line');
   el.strain = $('strain-line');
   el.evoList = $('evo-list');
@@ -51,7 +49,6 @@ export function buildUI(state) {
   el.achList = $('ach-list');
   el.achSec = $('ach-sec');
   el.achSummary = null;
-  el.expand = $('expand-btn');
   el.wither = $('wither-btn');
   el.news = $('news');
   el.saveIO = $('save-io');
@@ -111,21 +108,22 @@ function buildAchievements() {
 
 function buildHelp() {
   $('help').innerHTML = `
-    <p>You are a small, ambitious disease. <strong>Cough</strong> to seed an infection, and from
-    there it spreads on its own through the population. Every host it touches feeds you
-    <strong>biomass</strong>.</p>
-    <p>Spend biomass on <strong>Evolutions</strong> — each simply makes you spread faster. Faster is
-    always better; there is no wrong pick.</p>
-    <p>Clear an arena to <strong>Expand</strong> to a bigger one, all the way to the whole World. When a
-    place turns stubborn, <strong>Wither</strong>: rot your run down to mulch for <strong>Strains</strong>,
-    then spend them on <strong>Virulence</strong> — a permanent boost that makes every future climb
-    faster. New things unlock as you go; they're announced when they do.</p>
+    <p>You are a small, ambitious disease, and you are <strong>self-replicating</strong>:
+    the more <strong>infected</strong> you have, the faster you spread. It grows on its own —
+    this is an idle game, so the number climbs whether you're watching or not. <strong>Cough</strong>
+    to give it an early nudge.</p>
+    <p>The infected shed <strong>biomass</strong>. Spend it on <strong>Evolutions</strong> —
+    <em>Contagion</em> spreads you faster, <em>Potency</em> fattens every host's yield. Both are
+    repeatable; buy them forever.</p>
+    <p>When the numbers get silly, <strong>Wither</strong>: rot the whole run down to mulch for
+    <strong>Strains</strong>, then spend them on <strong>Virulence</strong> — a permanent, compounding
+    spread boost that carries across every Wither. That's the long game: rot, regrow, faster each time.</p>
     <p><strong>Keys:</strong></p>
     <ul>
-      <li><kbd>C</kbd> — cough (seed an infection)</li>
+      <li><kbd>C</kbd> — cough (a burst of fresh infected)</li>
       <li><kbd>S</kbd> — read your status aloud</li>
       <li><kbd>R</kbd> — recap what's changed since you last checked</li>
-      <li><kbd>E</kbd> — Expand &nbsp; <kbd>W</kbd> — Wither</li>
+      <li><kbd>W</kbd> — Wither</li>
     </ul>`;
 }
 
@@ -133,8 +131,8 @@ function buildHelp() {
 // Progressive disclosure
 // --------------------------------------------------------------------------
 
-function evolutionsRevealed(state) { return state.stats.totalDeadAllTime.gte(1); } // after the first death
-function strainsRevealed(state) { return state.stats.witherCount >= 1 || state.strains.gt(0); } // after the first Wither
+function evolutionsRevealed(state) { return Object.keys(state.evolutions).length > 0 || state.biomass.gte(EVOLUTIONS[0].cost(0) * 0.5); }
+function strainsRevealed(state) { return state.stats.witherCount >= 1 || state.strains.gt(0); }
 function achievementsRevealed(state) { return Object.keys(state.achievements).length > 0; }
 
 const SECTION_LABEL = {
@@ -198,17 +196,9 @@ function eta(cost, have, rate) {
 
 export function render(state) {
   game = state;
-  const vir = E.currentVirulence(state);
 
-  el.status.textContent = `Biomass: ${fmt(state.biomass)}.  Strains: ${fmt(state.strains)}.  Virulence ×${fmt(vir)}.`;
-
-  const a = ARENAS[state.arenaIndex];
-  const p = state.population;
-  const everPct = p.total > 0 ? ((p.total - p.susceptible) / p.total) * 100 : 0;
-  const clearEta = everPct < 99.9 ? fmtTime(state.clearEtaSeconds) : null;
-  el.arena.textContent = `In ${a.name}: ${fmt(Math.floor(p.susceptible))} healthy, ${fmt(Math.floor(p.infected))} infected, ${fmt(Math.floor(p.dead))} dead, of ${fmt(p.total)}. ${everPct.toFixed(1)}% have caught it${clearEta ? `, clearing in ~${clearEta}` : ''}. ${a.blurb}`;
-
-  el.vitals.textContent = `Plague vitals — spread ×${fmt(state.mult.infectivity)}. The faster it spreads, the better.`;
+  el.status.textContent = `Infected: ${fmt(state.infected)}.  Biomass: ${fmt(state.biomass)}.  Strains: ${fmt(state.strains)}.  Virulence ×${fmt(E.currentVirulence(state))}.`;
+  el.rates.textContent = `Spreading +${fmt(E.spreadRate(state))} infected/s. Harvesting +${fmt(E.biomassRate(state))} biomass/s.`;
 
   el.biomass.textContent = `Biomass available: ${fmt(state.biomass)}.`;
   el.strain.textContent = `Strains banked: ${fmt(state.strains)}.`;
@@ -230,18 +220,12 @@ function renderEvolutions(state) {
   const br = E.biomassRate(state);
   for (const ev of EVOLUTIONS) {
     const b = evoRefs[ev.id];
-    const owned = !!state.evolutions[ev.id];
-    if (owned) {
-      b.textContent = `✓ ${ev.name} — ${ev.effect}. ${ev.flavor}`;
-      b.className = 'evo-node evo-owned';
-      b.disabled = true;
-    } else {
-      const affordable = state.biomass.gte(ev.cost);
-      const e = affordable ? null : eta(ev.cost, state.biomass, br);
-      b.textContent = `${ev.name} — ${ev.effect} — ${fmt(ev.cost)} biomass${affordable ? '' : (e ? ` (~${e})` : ' (need more)')}. ${ev.flavor}`;
-      b.className = affordable ? 'evo-node go' : 'evo-node';
-      b.disabled = !affordable;
-    }
+    const lvl = state.evolutions[ev.id] || 0;
+    const cost = E.evolutionCost(ev, lvl);
+    const affordable = state.biomass.gte(cost);
+    const e = affordable ? null : eta(cost, state.biomass, br);
+    b.className = affordable ? 'evo-node go' : 'evo-node';
+    setBtn(b, `${ev.name} (Lv ${lvl}) — ${ev.desc(lvl)} — ${fmt(cost)} biomass${affordable ? '' : (e ? ` (~${e})` : '')}. ${ev.flavor}`, !affordable);
   }
 }
 
@@ -275,10 +259,6 @@ function renderAchievements(state) {
 }
 
 function renderPrestige(state) {
-  const canE = E.canExpand(state);
-  el.expand.hidden = !canE;
-  if (canE) el.expand.textContent = `Expand to ${ARENAS[state.arenaIndex + 1].name} (E)`;
-
   const gain = E.witherGain(state);
   const canW = E.canWither(state) && gain.gte(1);
   el.wither.hidden = !canW;
@@ -297,7 +277,6 @@ function setBtn(btn, text, disabled) {
 function wireEvents() {
   $('cough-btn').addEventListener('click', doCough);
   $('status-btn').addEventListener('click', announceStatus);
-  el.expand.addEventListener('click', doExpand);
   el.wither.addEventListener('click', doWither);
 
   $('verbosity').addEventListener('change', e => {
@@ -341,7 +320,6 @@ function onKey(ev) {
   if (k === 'c') doCough();
   else if (k === 's') announceStatus();
   else if (k === 'r') doRecap();
-  else if (k === 'e') doExpand();
   else if (k === 'w') doWither();
   else if (k === '?' || k === 'h') { const d = $('help-sec'); if (d) d.open = true; $('help').focus(); announce('How to play.', true); }
   else return;
@@ -350,7 +328,7 @@ function onKey(ev) {
 }
 
 function onBuyEvolution(id) {
-  if (E.buyEvolution(game, id)) { announce(`Evolution acquired: ${EVO_BY_ID[id].name}.`); save(game); render(game); }
+  if (E.buyEvolution(game, id)) { announce(`Evolved: ${EVO_BY_ID[id].name}, now level ${game.evolutions[id]}.`); save(game); render(game); }
 }
 
 function onBuyPerk(id) {
@@ -362,27 +340,21 @@ function onBuyPerk(id) {
 }
 
 function doCough() {
-  const r = E.cough(game);
+  E.cough(game);
   if (game.settings.announceVerbosity !== 'quiet') {
     const now = Date.now();
     if (now - lastCoughAt > 800) {
       lastCoughAt = now;
-      announce(r.seeded > 0 ? 'Cough — and someone catches it.' : 'Cough. (Everyone here already has it.)');
+      announce(`Cough — a fresh gout of infection. ${fmt(game.infected)} infected.`);
     }
   }
   render(game);
 }
 
-function doExpand() {
-  if (!E.canExpand(game)) { announce('Nothing to expand into yet — get the current arena thoroughly infected first.', true); return; }
-  const r = E.expand(game);
-  if (r) { announce(`Expanded to ${r.arena.name}. Fresh hosts, how lovely.`, true); pushRecent(game, `Expanded to ${r.arena.name}.`); save(game); render(game); }
-}
-
 function doWither() {
   const gain = E.witherGain(game);
   if (!E.canWither(game) || gain.lt(1)) { announce('Not enough spread banked to Wither yet.', true); return; }
-  if (!window.confirm('Wither? Your whole current run rots to mulch — biomass and evolutions all reset — in exchange for Strains. Perks are kept.')) return;
+  if (!window.confirm('Wither? Your whole current run rots to mulch — infected, biomass and evolutions all reset — in exchange for Strains. Virulence is kept.')) return;
   const r = E.wither(game);
   if (r) { announce(`Withered. Gained ${fmt(r.gain)} strains. From the muck, something wigglier begins.`, true); pushRecent(game, `Withered for ${fmt(r.gain)} strains.`); save(game); render(game); }
 }
@@ -406,14 +378,10 @@ function doImport() {
 }
 
 function announceStatus() {
-  const a = ARENAS[game.arenaIndex];
-  const p = game.population;
-  const everPct = p.total > 0 ? ((p.total - p.susceptible) / p.total) * 100 : 0;
-  const clearEta = everPct < 99.9 ? fmtTime(game.clearEtaSeconds) : null;
   announce(
-    `${a.name}: ${everPct.toFixed(0)} percent infected${clearEta ? `, clearing in about ${clearEta}` : ''}; ` +
-    `${speakNumber(Math.floor(p.dead))} dead of ${speakNumber(p.total)}. ` +
-    `${speakNumber(game.biomass)} biomass, ${speakNumber(game.strains)} strains, virulence ${speakNumber(E.currentVirulence(game))}.`,
+    `${speakNumber(game.infected)} infected, spreading ${speakNumber(E.spreadRate(game))} per second. ` +
+    `${speakNumber(game.biomass)} biomass, plus ${speakNumber(E.biomassRate(game))} per second. ` +
+    `${speakNumber(game.strains)} strains, virulence ${speakNumber(E.currentVirulence(game))}.`,
     true,
   );
 }

@@ -11,7 +11,7 @@ const require = createRequire(import.meta.url);
 globalThis.Decimal = require('../vendor/break_eternity.min.js');
 
 const mods = [
-  '../balance.js', '../content.js', '../state.js', '../population.js',
+  '../balance.js', '../content.js', '../state.js',
   '../engine.js', '../a11y.js', '../save.js', '../ui.js',
 ];
 

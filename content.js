@@ -2,68 +2,49 @@
  * Festerwood — all game content as data.
  *
  * Adding content means extending these arrays, never touching the engine.
- * `apply(mult)` functions mutate the multiplier bag the engine builds in
+ * `apply(mult, level)` functions mutate the multiplier bag the engine builds in
  * recompute(), so effects are always recomputed from scratch, never stored.
  * Costs/curves derive from BALANCE so the tuning lives in one place.
  *
  * Voice note: every player-facing string is gross-whimsical. A narrator
  * delighted by the disgusting. Keep it that way.
  *
- * v1 is single-engine: the infection is the only growth engine. There are no
- * producers/spores. Evolutions (biomass) and one Virulence perk (strains) both
- * feed the single `infectivity` multiplier.
+ * v1 is a pure idle, single-engine game: no zones. Evolutions (biomass) and the
+ * Virulence perk (strains) feed two multipliers — `spread` (how fast the infected
+ * count climbs) and `biomass` (income per infected).
  */
 
 import { BALANCE } from './balance.js';
 
 /**
- * The Evolutions — a FLAT list bought with Biomass, reset each Wither.
- * Every evolution simply multiplies spread (infectivity); faster is always
- * better, so there is no trap pick and no tree to navigate. Cost follows the
- * geometric curve in BALANCE; `effect` text is derived so it can never drift
- * from `apply`.
+ * Evolutions — repeatable, levelled, bought with Biomass, reset each Wither.
+ * Contagion speeds the spread; Potency fattens the biomass each host yields.
+ * The two are the idle spend-cadence: grow faster, or earn faster.
  */
-const EVO_FLAVORS = [
-  { id: 'e0', name: 'Sticky Handshake', flavor: 'Everyone insists on shaking hands. How thoughtful.' },
-  { id: 'e1', name: 'Airborne Giggles', flavor: 'It rides out on every snicker and snort.' },
-  { id: 'e2', name: 'Explosive Sneezing', flavor: 'Bless you. Bless ALL of you.' },
-  { id: 'e3', name: 'Viral Tweet', flavor: 'Technically a meme now. Engagement is through the roof.' },
-  { id: 'e4', name: 'Doorknob Devotion', flavor: 'It has learned to adore a good handle and never quite let go.' },
-  { id: 'e5', name: 'Liquefaction', flavor: 'The hosts become so much more... portable.' },
-  { id: 'e6', name: 'Antiseptic Indifference', flavor: 'It read the disinfectant label and laughed.' },
-  { id: 'e7', name: 'Hand-Sanitizer Shrug', flavor: 'A whole pump of the stuff. It didn’t even flinch.' },
-  { id: 'e8', name: 'Total Organ Confusion', flavor: 'The spleen is doing the lungs’ job now. Nobody is happy.' },
-  { id: 'e9', name: 'Sentient Mucus', flavor: 'It has opinions now. They are all phlegm-based.' },
-];
-
-export const EVOLUTIONS = EVO_FLAVORS.map((e, k) => ({
-  ...e,
-  cost: Math.ceil(BALANCE.EVO_BASE_COST * Math.pow(BALANCE.EVO_COST_GROWTH, k)),
-  effect: `×${BALANCE.EVO_SPREAD_MULT} spread`,
-  apply: m => { m.infectivity = m.infectivity.mul(BALANCE.EVO_SPREAD_MULT); },
-}));
-
-/**
- * Arenas — progressive populations. Clear one to Expand to the next.
- * `immunity` divides the transmission rate and climbs steeply, so a single
- * un-prestiged run reaches the World and walls there: that wall is what drives
- * the Wither → Strains → Virulence → re-climb loop (the long game). Populations
- * provide all the exponential biomass scaling; immunity provides the wall.
- */
-export const ARENAS = [
-  { id: 'household', name: 'the Henderson Household', population: 5, immunity: 1, blurb: 'Five people and a dog’s water bowl. A cosy place to begin.' },
-  { id: 'block', name: 'Maple Street', population: 120, immunity: 10, blurb: 'A whole cul-de-sac of generously shared doorknobs.' },
-  { id: 'town', name: 'the town of Drearyford', population: 8000, immunity: 120, blurb: 'One supermarket, one school, infinite handrails.' },
-  { id: 'city', name: 'the city of Grimewick', population: 600000, immunity: 2000, blurb: 'Public transport! Oh, you’ll love public transport.' },
-  { id: 'country', name: 'the nation of Blandia', population: 40000000, immunity: 40000, blurb: 'Borders are merely a suggestion to an airborne giggle.' },
-  { id: 'world', name: 'the whole wide World', population: 8000000000, immunity: 2000000, blurb: 'Everything. Everyone. All of it. Yum.' },
+export const EVOLUTIONS = [
+  {
+    id: 'contagion',
+    name: 'Contagion',
+    flavor: 'Stickier, sneezier, altogether more sociable.',
+    cost: l => Math.ceil(BALANCE.CONTAGION_COST_BASE * Math.pow(BALANCE.CONTAGION_COST_GROWTH, l)),
+    desc: () => `+${Math.round((BALANCE.CONTAGION_STEP - 1) * 100)}% spread`,
+    apply: (m, l) => { m.spread = m.spread.mul(Decimal.pow(BALANCE.CONTAGION_STEP, l)); },
+  },
+  {
+    id: 'potency',
+    name: 'Potency',
+    flavor: 'Each host rots down into so much more usable goo.',
+    cost: l => Math.ceil(BALANCE.POTENCY_COST_BASE * Math.pow(BALANCE.POTENCY_COST_GROWTH, l)),
+    desc: () => `+${Math.round((BALANCE.POTENCY_STEP - 1) * 100)}% biomass`,
+    apply: (m, l) => { m.biomass = m.biomass.mul(Decimal.pow(BALANCE.POTENCY_STEP, l)); },
+  },
 ];
 
 /**
  * Strains shop — permanent perks bought with Strains, kept through every Wither.
  * v1 ships a SINGLE perk: Virulence, the unbounded compounding spread multiplier
- * that is the game's real progression axis. cost(level) & desc(level) are
- * functions; `apply` folds VIR_BASE^level into the infectivity multiplier.
+ * that is the game's real long-term progression. The plague comes back faster
+ * every time it rots and regrows.
  */
 export const PERKS = [
   {
@@ -71,18 +52,18 @@ export const PERKS = [
     name: 'Virulence',
     cost: l => Math.ceil(BALANCE.VIR_COST_BASE * Math.pow(BALANCE.VIR_COST_GROWTH, l)),
     desc: () => `+${Math.round((BALANCE.VIR_BASE - 1) * 100)}% spread, compounding`,
-    apply: (m, l) => { m.infectivity = m.infectivity.mul(Decimal.pow(BALANCE.VIR_BASE, l)); },
+    apply: (m, l) => { m.spread = m.spread.mul(Decimal.pow(BALANCE.VIR_BASE, l)); },
   },
 ];
 
 /** Achievements. Some grant a real, permanent multiplier via `bonus(mult)` — milestone bonuses, not just badges. */
 export const ACHIEVEMENTS = [
-  { id: 'firstblood', name: 'First Blood', desc: 'Claim your very first victim.', condition: s => s.stats.totalDeadAllTime.gte(1), unlockText: 'Achievement: First Blood — your first victim! They were probably awful anyway.' },
+  { id: 'firstblood', name: 'First Blood', desc: 'Claim your very first victim.', condition: s => s.infected.gte(1), unlockText: 'Achievement: First Blood — your first victim! They were probably awful anyway.' },
+  { id: 'thousand', name: 'A Thousand Sniffles', desc: 'Infect a thousand.', condition: s => s.infected.gte(1000), unlockText: 'Achievement: A Thousand Sniffles — a thousand hosts, all yours, all leaking.', bonus: m => { m.spread = m.spread.mul(1.1); } },
   { id: 'snot', name: 'Snot Going to Lie', desc: 'Hoard a thousand biomass.', condition: s => s.biomass.gte(1000), unlockText: 'Achievement: Snot Going to Lie — a thousand biomass, all yours, all wriggling.' },
-  { id: 'family', name: 'Family Misfortune', desc: 'Ruin the Henderson Household.', condition: s => s.stats.highestArena >= 1, unlockText: 'Achievement: Family Misfortune — the Hendersons are no more. The dog is fine.', bonus: m => { m.infectivity = m.infectivity.mul(1.1); } },
-  { id: 'million', name: 'Seven Figures of Sorrow', desc: 'Kill a million people, all time.', condition: s => s.stats.totalDeadAllTime.gte(1e6), unlockText: 'Achievement: Seven Figures of Sorrow — a million souls. Splendid bookkeeping.', bonus: m => { m.infectivity = m.infectivity.mul(1.25); } },
-  { id: 'wither', name: 'Compost Happens', desc: 'Wither for the first time.', condition: s => s.stats.witherCount >= 1, unlockText: 'Achievement: Compost Happens — from rot, ambition.', bonus: m => { m.infectivity = m.infectivity.mul(1.15); } },
-  { id: 'worldsend', name: 'Well, That’s Everyone', desc: 'Bring the whole World to ruin.', condition: s => s.population.total >= 8e9 && (s.population.total - s.population.susceptible) >= 8e9 * 0.95, unlockText: 'Achievement: Well, That’s Everyone — the World is a charming ruin.', bonus: m => { m.infectivity = m.infectivity.mul(1.5); } },
+  { id: 'million', name: 'Seven Figures of Sorrow', desc: 'Infect a million.', condition: s => s.infected.gte(1e6), unlockText: 'Achievement: Seven Figures of Sorrow — a million hosts. Splendid bookkeeping.', bonus: m => { m.biomass = m.biomass.mul(1.25); } },
+  { id: 'wither', name: 'Compost Happens', desc: 'Wither for the first time.', condition: s => s.stats.witherCount >= 1, unlockText: 'Achievement: Compost Happens — from rot, ambition.', bonus: m => { m.spread = m.spread.mul(1.15); } },
+  { id: 'worldsend', name: 'Well, That’s Everyone', desc: 'Infect more than the whole world holds.', condition: s => s.infected.gte(8e9), unlockText: 'Achievement: Well, That’s Everyone — more infected than there are people. You’re double-dipping. Glorious.', bonus: m => { m.spread = m.spread.mul(1.5); } },
 ];
 
 /** Rolling news ticker — pure flavour ambience. */

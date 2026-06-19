@@ -2,18 +2,18 @@
  * Festerwood — the engine. Pure game logic, no DOM.
  *
  * Every mutating action returns plain data (and tick() returns an events array);
- * the UI/main layer is responsible for announcing things. Keeping the engine
- * DOM-free is what lets test/sim.mjs drive it headlessly under Node.
+ * the UI/main layer announces things. Keeping the engine DOM-free is what lets
+ * test/sim.mjs drive it headlessly under Node.
  *
- * v1 is single-engine: the infection is the only growth engine. `infectivity`
- * is the one multiplier that matters — evolutions (biomass) and Virulence
- * (strains) both feed it. Biomass is earned per newly-infected host; deaths are
- * cosmetic. Prestige pays out on ever-infected, not deaths.
+ * v1 is a PURE IDLE single-engine game. The infected count self-replicates at a
+ * PACED rate (infected^GROWTH_EXPONENT, exponent < 1, so it accelerates without
+ * running to infinity). Two multipliers: `spread` (how fast infected climbs) and
+ * `biomass` (income per infected). Evolutions (biomass) and Virulence (strains)
+ * feed them. Prestige pays out on peak infected.
  */
 
 import { BALANCE } from './balance.js';
-import { EVOLUTIONS, ARENAS, ACHIEVEMENTS, PERKS } from './content.js';
-import { stepEpidemic, isArenaExhausted } from './population.js';
+import { EVOLUTIONS, ACHIEVEMENTS, PERKS } from './content.js';
 
 const EVO_BY_ID = Object.fromEntries(EVOLUTIONS.map(e => [e.id, e]));
 const PERK_BY_ID = Object.fromEntries(PERKS.map(p => [p.id, p]));
@@ -25,7 +25,8 @@ const PERK_BY_ID = Object.fromEntries(PERKS.map(p => [p.id, p]));
 /** Recompute `state.mult` from permanent perks, this-run evolutions, and achievement bonuses. */
 export function recompute(state) {
   const mult = {
-    infectivity: new Decimal(1), // the one multiplier: scales spread (power)
+    spread: new Decimal(1), // scales how fast infected climbs
+    biomass: new Decimal(1), // scales biomass income per infected
   };
 
   for (const p of PERKS) {
@@ -33,7 +34,8 @@ export function recompute(state) {
     if (lvl > 0) p.apply(mult, lvl);
   }
   for (const e of EVOLUTIONS) {
-    if (state.evolutions[e.id]) e.apply(mult);
+    const lvl = state.evolutions[e.id] || 0;
+    if (lvl > 0) e.apply(mult, lvl);
   }
   for (const a of ACHIEVEMENTS) {
     if (state.achievements[a.id] && a.bonus) a.bonus(mult);
@@ -45,26 +47,17 @@ export function recompute(state) {
 
 /** The current Virulence multiplier (the prestige axis), for display. */
 export function currentVirulence(state) {
-  const lvl = state.perks.virulence || 0;
-  return Decimal.pow(BALANCE.VIR_BASE, lvl);
+  return Decimal.pow(BALANCE.VIR_BASE, state.perks.virulence || 0);
 }
 
-/** The epidemic's live parameters for the current arena: spread `power` and the fixed death hazard. */
-function epiParams(state) {
-  const arena = ARENAS[state.arenaIndex];
-  const power = (BALANCE.BASE_INFECTIVITY * state.mult.infectivity.toNumber()) / arena.immunity;
-  const lethality = BALANCE.BASE_LETHALITY; // fixed; cosmetic; never outpaces spread
-  return { power, lethality };
+/** Current spread, i.e. new infected per second (Decimal) — for display. */
+export function spreadRate(state) {
+  return new Decimal(BALANCE.BASE_SPREAD).mul(state.mult.spread).mul(state.infected.pow(BALANCE.GROWTH_EXPONENT));
 }
 
-/** Estimated biomass income per second right now (Decimal) — for "affordable in ~Ns" readouts. */
+/** Current biomass income per second (Decimal) — for display and "affordable in ~Ns" readouts. */
 export function biomassRate(state) {
-  const pop = state.population;
-  if (pop.total <= 0) return new Decimal(0);
-  const { power } = epiParams(state);
-  const foi = power * (BALANCE.PRESSURE + BALANCE.CONTAGION * (pop.infected / pop.total));
-  const newInfPerSec = pop.susceptible * foi;
-  return new Decimal(newInfPerSec).mul(BALANCE.BIOMASS_PER_VICTIM);
+  return state.infected.mul(BALANCE.BASE_YIELD).mul(state.mult.biomass);
 }
 
 // --------------------------------------------------------------------------
@@ -72,9 +65,8 @@ export function biomassRate(state) {
 // --------------------------------------------------------------------------
 
 /**
- * Advance the whole game by dt seconds (clamped to the offline cap). Subdivides
- * into fixed sub-steps so the epidemic stays stable even for a large offline dt.
- * Returns an array of {type, text, assertive} events.
+ * Advance the game by dt seconds (clamped to the offline cap). Sub-steps so a
+ * large offline dt integrates cleanly. Returns an array of {type, text, assertive}.
  */
 export function tick(state, dtSeconds) {
   const events = [];
@@ -82,65 +74,25 @@ export function tick(state, dtSeconds) {
   if (dt <= 0) return events;
 
   state.stats.playSeconds += dt;
-  const startS = state.population.susceptible;
 
-  let remaining = dt;
-  while (remaining > 1e-9) {
-    const sdt = Math.min(BALANCE.TICK_STEP, remaining);
-    remaining -= sdt;
-    simStep(state, sdt);
+  // Multipliers are fixed across a tick (they only change on a purchase, which
+  // recomputes), so resolve the coefficients once.
+  const k = new Decimal(BALANCE.BASE_SPREAD).mul(state.mult.spread);
+  const yld = new Decimal(BALANCE.BASE_YIELD).mul(state.mult.biomass);
+
+  const n = Math.min(BALANCE.MAX_SUBSTEPS, Math.max(1, Math.ceil(dt / BALANCE.TICK_STEP)));
+  const sdt = dt / n;
+  for (let i = 0; i < n; i++) {
+    const dI = k.mul(state.infected.pow(BALANCE.GROWTH_EXPONENT)).mul(sdt);
+    state.infected = state.infected.add(dI);
+    state.biomass = state.biomass.add(state.infected.mul(yld).mul(sdt));
   }
 
-  // Clear ETA for the accessible arena readout: time until 95% ever-infected.
-  const pop = state.population;
-  const dS = (startS - pop.susceptible) / dt; // susceptibles consumed per second
-  const target = (1 - BALANCE.EXHAUST_FRACTION) * pop.total;
-  state.clearEtaSeconds = pop.susceptible <= target ? 0 : (dS > 1e-9 ? (pop.susceptible - target) / dS : Infinity);
-
-  // Progress milestones (skip trivially small arenas where they'd just be noise).
-  if (!state._arenaMilestones) state._arenaMilestones = [];
-  if (pop.total > 50) {
-    const everPct = ((pop.total - pop.susceptible) / pop.total) * 100;
-    for (const thr of [50, 90]) {
-      if (everPct >= thr && !state._arenaMilestones.includes(thr)) {
-        state._arenaMilestones.push(thr);
-        events.push({ type: 'milestone', assertive: false, text: `${thr}% of ${ARENAS[state.arenaIndex].name} has caught it.` });
-      }
-    }
-  }
-
-  if (!state._exhaustedAnnounced && isArenaExhausted(state.population)) {
-    state._exhaustedAnnounced = true;
-    if (state.arenaIndex < ARENAS.length - 1) {
-      events.push({ type: 'arena', assertive: true, text: `${ARENAS[state.arenaIndex].name} has thoroughly caught it. You may Expand to ${ARENAS[state.arenaIndex + 1].name}.` });
-    } else {
-      events.push({ type: 'victory', assertive: true, text: 'The whole World is a glorious ruin. You may Wither and begin anew, stronger and squelchier.' });
-    }
-  }
+  if (state.infected.gt(state.peakInfectedThisRun)) state.peakInfectedThisRun = state.infected;
+  if (state.peakInfectedThisRun.gt(state.stats.peakInfectedAllTime)) state.stats.peakInfectedAllTime = state.peakInfectedThisRun;
 
   checkAchievements(state, events);
   return events;
-}
-
-/** One fixed-size simulation sub-step: the epidemic, and the biomass it pays. */
-function simStep(state, dt) {
-  const pop = state.population;
-  const { power, lethality } = epiParams(state);
-  const { newInfections, deaths } = stepEpidemic(pop, { power, lethality }, dt);
-
-  // Biomass is paid once, when a host first catches it — so income tracks spread,
-  // the one thing the player improves. Ever-infected is also the prestige metric.
-  if (newInfections > 0) {
-    const ni = new Decimal(newInfections);
-    state.biomass = state.biomass.add(ni.mul(BALANCE.BIOMASS_PER_VICTIM));
-    state.totalEverInfectedThisRun = state.totalEverInfectedThisRun.add(ni);
-  }
-  // Deaths are cosmetic flavour + feed the death-count achievements.
-  if (deaths > 0) {
-    const d = new Decimal(deaths);
-    state.totalDeadThisRun = state.totalDeadThisRun.add(d);
-    state.stats.totalDeadAllTime = state.stats.totalDeadAllTime.add(d);
-  }
 }
 
 function checkAchievements(state, events) {
@@ -156,25 +108,25 @@ function checkAchievements(state, events) {
 }
 
 // --------------------------------------------------------------------------
-// Evolutions (Biomass, flat this-run list)
+// Evolutions (Biomass, repeatable/levelled this-run upgrades)
 // --------------------------------------------------------------------------
 
-/** Flat list: every evolution is available to buy once the section is revealed. */
-export function evolutionUnlocked(state, id) {
-  return !!EVO_BY_ID[id];
+export function evolutionCost(e, level) {
+  return new Decimal(e.cost(level));
 }
 
 export function canBuyEvolution(state, id) {
   const e = EVO_BY_ID[id];
-  if (!e || state.evolutions[id]) return false;
-  return state.biomass.gte(e.cost);
+  if (!e) return false;
+  return state.biomass.gte(evolutionCost(e, state.evolutions[id] || 0));
 }
 
 export function buyEvolution(state, id) {
   if (!canBuyEvolution(state, id)) return false;
   const e = EVO_BY_ID[id];
-  state.biomass = state.biomass.sub(e.cost);
-  state.evolutions[id] = true;
+  const lvl = state.evolutions[id] || 0;
+  state.biomass = state.biomass.sub(evolutionCost(e, lvl));
+  state.evolutions[id] = lvl + 1;
   recompute(state);
   return true;
 }
@@ -208,70 +160,40 @@ export function buyPerk(state, id) {
 // Manual action
 // --------------------------------------------------------------------------
 
-/** The Cough button: hand-seed an infection to bootstrap a run before contagion takes over. The accessible primary action. */
+/** The Cough button: a manual burst of fresh infected. The game idles fine without it; this just nudges. */
 export function cough(state) {
-  const pop = state.population;
-  const seeded = Math.min(pop.susceptible, BALANCE.COUGH_SEED);
-  pop.susceptible -= seeded;
-  pop.infected += seeded;
+  state.infected = state.infected.add(BALANCE.COUGH_SEED);
+  if (state.infected.gt(state.peakInfectedThisRun)) state.peakInfectedThisRun = state.infected;
   state.stats.totalCoughs++;
-  return { seeded };
+  return { seeded: BALANCE.COUGH_SEED };
 }
 
 // --------------------------------------------------------------------------
-// Prestige: Expand (advance an arena) and Wither (hard reset for Strains)
+// Prestige: Wither (reset the run for Strains)
 // --------------------------------------------------------------------------
 
-/** Reset population to arena `idx` (fresh hosts). Does not touch evolutions/perks. */
-export function enterArena(state, idx) {
-  state.arenaIndex = idx;
-  const total = ARENAS[idx].population;
-  state.population = { susceptible: total, infected: 0, dead: 0, total };
-  state._exhaustedAnnounced = false;
-  state._arenaMilestones = [];
-}
-
-/** Strains a Wither would pay out right now. Exported so the UI can preview it and gate the button. */
+/** Strains a Wither would pay out right now, from peak infected this run. */
 export function witherGain(state) {
-  const ever = state.totalEverInfectedThisRun;
-  if (ever.lt(BALANCE.MIN_INFECTED_TO_WITHER)) return new Decimal(0);
-  return ever.div(BALANCE.STRAIN_DIVISOR).pow(BALANCE.STRAIN_EXP).floor();
+  const peak = state.peakInfectedThisRun;
+  if (peak.lt(BALANCE.MIN_PEAK_TO_WITHER)) return new Decimal(0);
+  return peak.div(BALANCE.STRAIN_DIVISOR).pow(BALANCE.STRAIN_EXP).floor();
 }
 
-export function canExpand(state) {
-  return isArenaExhausted(state.population) && state.arenaIndex < ARENAS.length - 1;
-}
-
-/**
- * Advance to the next arena. Pure progression — keeps evolutions and pays NO
- * strains (Wither is the sole strain source).
- */
-export function expand(state) {
-  if (!canExpand(state)) return null;
-  const next = state.arenaIndex + 1;
-  state.stats.highestArena = Math.max(state.stats.highestArena, next);
-  enterArena(state, next);
-  recompute(state);
-  return { arena: ARENAS[next] };
-}
-
-/** You may Wither once you've made any real progress. */
 export function canWither(state) {
-  return state.arenaIndex >= 1 || isArenaExhausted(state.population);
+  return state.peakInfectedThisRun.gte(BALANCE.MIN_PEAK_TO_WITHER);
 }
 
-/** Hard reset of the run layer (evolutions, biomass, arena, run counters) in exchange for a big Strains payout. */
+/** Rot the run down (infected, biomass, evolutions) for a Strains payout. Perks/strains/stats survive. */
 export function wither(state) {
   if (!canWither(state)) return null;
   const gain = witherGain(state);
   state.strains = state.strains.add(gain);
   state.stats.witherCount++;
 
+  state.infected = new Decimal(BALANCE.START_INFECTED);
   state.biomass = new Decimal(0);
-  state.totalDeadThisRun = new Decimal(0);
-  state.totalEverInfectedThisRun = new Decimal(0);
   state.evolutions = {};
-  enterArena(state, 0);
+  state.peakInfectedThisRun = new Decimal(BALANCE.START_INFECTED);
   recompute(state);
   return { gain };
 }
