@@ -14,19 +14,21 @@
  *    (no DOM churn), so a screen reader sees stable structure.
  */
 
-import { EVOLUTIONS, PERKS, ACHIEVEMENTS, NEWS } from './content.js';
+import { EVOLUTIONS, PERKS, METAPERKS, ACHIEVEMENTS, NEWS } from './content.js';
 import { fmt, speakNumber, announce, setVerbosity } from './a11y.js';
 import { save, exportSave, importSave, hardReset, writeRawSave } from './save.js';
 import * as E from './engine.js';
 
 const EVO_BY_ID = Object.fromEntries(EVOLUTIONS.map(e => [e.id, e]));
 const PERK_BY_ID = Object.fromEntries(PERKS.map(p => [p.id, p]));
+const META_BY_ID = Object.fromEntries(METAPERKS.map(m => [m.id, m]));
 
 let game = null;
 let lastCoughAt = 0; // throttles cough announcements so holding C doesn't flood the screen reader
 const el = {};
 const evoRefs = {}; // id -> button
 const perkRefs = {}; // id -> button
+const metaRefs = {}; // id -> button
 const achRefs = {}; // id -> li
 
 const $ = id => document.getElementById(id);
@@ -46,15 +48,20 @@ export function buildUI(state) {
   el.evoSec = $('evo-sec');
   el.perkList = $('perk-list');
   el.perkSec = $('perk-sec');
+  el.metaList = $('meta-list');
+  el.metaSec = $('meta-sec');
+  el.genome = $('genome-line');
   el.achList = $('ach-list');
   el.achSec = $('ach-sec');
   el.achSummary = null;
   el.wither = $('wither-btn');
+  el.mutate = $('mutate-btn');
   el.news = $('news');
   el.saveIO = $('save-io');
 
   buildEvolutions();
   buildPerks();
+  buildMeta();
   buildAchievements();
   buildHelp();
   wireEvents();
@@ -93,6 +100,20 @@ function buildPerks() {
   }
 }
 
+function buildMeta() {
+  el.metaList.innerHTML = '';
+  for (const mp of METAPERKS) {
+    const li = document.createElement('li');
+    li.className = 'card';
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.meta = mp.id;
+    li.append(b);
+    el.metaList.append(li);
+    metaRefs[mp.id] = b;
+  }
+}
+
 function buildAchievements() {
   el.achList.innerHTML = '';
   for (const a of ACHIEVEMENTS) {
@@ -117,13 +138,16 @@ function buildHelp() {
     repeatable; buy them forever.</p>
     <p>When the numbers get silly, <strong>Wither</strong>: rot the whole run down to mulch for
     <strong>Strains</strong>, then spend them on <strong>Virulence</strong> — a permanent, compounding
-    spread boost that carries across every Wither. That's the long game: rot, regrow, faster each time.</p>
+    spread boost that carries across every Wither.</p>
+    <p>Bank enough strains and you can <strong>Mutate</strong> — a deeper reset that rots even your
+    strains and Virulence away for <strong>Genome</strong>, spent on <strong>Adaptations</strong>:
+    permanent global boosts that survive every Mutate. Rot, regrow, faster each time — that's the deep game.</p>
     <p><strong>Keys:</strong></p>
     <ul>
       <li><kbd>C</kbd> — cough (a burst of fresh infected)</li>
       <li><kbd>S</kbd> — read your status aloud</li>
       <li><kbd>R</kbd> — recap what's changed since you last checked</li>
-      <li><kbd>W</kbd> — Wither</li>
+      <li><kbd>W</kbd> — Wither &nbsp; <kbd>M</kbd> — Mutate</li>
     </ul>`;
 }
 
@@ -133,17 +157,20 @@ function buildHelp() {
 
 function evolutionsRevealed(state) { return Object.keys(state.evolutions).length > 0 || state.biomass.gte(EVOLUTIONS[0].cost(0) * 0.5); }
 function strainsRevealed(state) { return state.stats.witherCount >= 1 || state.strains.gt(0); }
+function metaRevealed(state) { return (state.stats.mutateCount || 0) >= 1 || state.genome.gt(0) || E.canMutate(state); }
 function achievementsRevealed(state) { return Object.keys(state.achievements).length > 0; }
 
 const SECTION_LABEL = {
   'sec:evo': 'Evolutions — spend biomass to spread faster',
   'sec:strain': 'Strains — permanent Virulence, bought by Withering',
+  'sec:meta': 'Adaptations — permanent boosts, bought by Mutating',
   'sec:ach': 'Achievements',
 };
 function revealKeys(state) {
   const keys = [];
   if (evolutionsRevealed(state)) keys.push('sec:evo');
   if (strainsRevealed(state)) keys.push('sec:strain');
+  if (metaRevealed(state)) keys.push('sec:meta');
   if (achievementsRevealed(state)) keys.push('sec:ach');
   return keys;
 }
@@ -197,20 +224,24 @@ function eta(cost, have, rate) {
 export function render(state) {
   game = state;
 
-  el.status.textContent = `Infected: ${fmt(state.infected)}.  Biomass: ${fmt(state.biomass)}.  Strains: ${fmt(state.strains)}.  Virulence ×${fmt(E.currentVirulence(state))}.`;
-  el.rates.textContent = `Spreading +${fmt(E.spreadRate(state))} infected/s. Harvesting +${fmt(E.biomassRate(state))} biomass/s.`;
+  const showGenome = metaRevealed(state);
+  el.status.textContent = `Infected: ${fmt(state.infected)}.  Biomass: ${fmt(state.biomass)}.  Strains: ${fmt(state.strains)}.  Virulence ×${fmt(E.currentVirulence(state))}.${showGenome ? `  Genome: ${fmt(state.genome)}.` : ''}`;
+  el.rates.textContent = `Spreading +${fmt(E.spreadRate(state))} infected/s. Harvesting +${fmt(E.biomassRate(state))} biomass/s.${state.perks.autobuy ? ' Auto-evolving.' : ''}`;
 
   el.biomass.textContent = `Biomass available: ${fmt(state.biomass)}.`;
   el.strain.textContent = `Strains banked: ${fmt(state.strains)}.`;
+  el.genome.textContent = `Genome banked: ${fmt(state.genome)}.`;
 
   renderEvolutions(state);
   renderPerks(state);
+  renderMeta(state);
   renderAchievements(state);
   renderPrestige(state);
 
   // sections
   el.evoSec.hidden = !evolutionsRevealed(state);
   el.perkSec.hidden = !strainsRevealed(state);
+  el.metaSec.hidden = !metaRevealed(state);
   el.achSec.hidden = !achievementsRevealed(state);
 
   announceUnlocks(state);
@@ -245,6 +276,22 @@ function renderPerks(state) {
   }
 }
 
+function renderMeta(state) {
+  for (const mp of METAPERKS) {
+    const b = metaRefs[mp.id];
+    const lvl = state.metaPerks[mp.id] || 0;
+    if (mp.maxLevel && lvl >= mp.maxLevel) {
+      setBtn(b, `${mp.name} — maxed (Lv ${lvl}). ${mp.desc(lvl)}.`, true);
+      b.className = '';
+      continue;
+    }
+    const cost = E.metaCost(mp, lvl);
+    const affordable = state.genome.gte(cost);
+    b.className = affordable ? 'go' : '';
+    setBtn(b, `${mp.name} (Lv ${lvl}) — next: ${mp.desc(lvl + 1)} for ${fmt(cost)} genome`, !affordable);
+  }
+}
+
 function renderAchievements(state) {
   let earned = 0;
   for (const a of ACHIEVEMENTS) {
@@ -263,6 +310,11 @@ function renderPrestige(state) {
   const canW = E.canWither(state) && gain.gte(1);
   el.wither.hidden = !canW;
   if (canW) el.wither.textContent = `Wither for ${fmt(gain)} Strains (W)`;
+
+  const mg = E.mutateGain(state);
+  const canM = E.canMutate(state) && mg.gte(1);
+  el.mutate.hidden = !canM;
+  if (canM) el.mutate.textContent = `Mutate for ${fmt(mg)} Genome (M)`;
 }
 
 function setBtn(btn, text, disabled) {
@@ -278,6 +330,7 @@ function wireEvents() {
   $('cough-btn').addEventListener('click', doCough);
   $('status-btn').addEventListener('click', announceStatus);
   el.wither.addEventListener('click', doWither);
+  el.mutate.addEventListener('click', doMutate);
 
   $('verbosity').addEventListener('change', e => {
     game.settings.announceVerbosity = e.target.value;
@@ -302,10 +355,11 @@ function wireEvents() {
   });
 
   document.addEventListener('click', ev => {
-    const t = ev.target.closest('[data-evo],[data-perk]');
+    const t = ev.target.closest('[data-evo],[data-perk],[data-meta]');
     if (!t) return;
     if (t.dataset.evo) onBuyEvolution(t.dataset.evo);
     else if (t.dataset.perk) onBuyPerk(t.dataset.perk);
+    else if (t.dataset.meta) onBuyMeta(t.dataset.meta);
   });
 
   document.addEventListener('keydown', onKey);
@@ -321,6 +375,7 @@ function onKey(ev) {
   else if (k === 's') announceStatus();
   else if (k === 'r') doRecap();
   else if (k === 'w') doWither();
+  else if (k === 'm') doMutate();
   else if (k === '?' || k === 'h') { const d = $('help-sec'); if (d) d.open = true; $('help').focus(); announce('How to play.', true); }
   else return;
 
@@ -334,6 +389,14 @@ function onBuyEvolution(id) {
 function onBuyPerk(id) {
   if (E.buyPerk(game, id)) {
     announce(`Strain perk: ${PERK_BY_ID[id].name}, now level ${game.perks[id]}.`);
+    save(game);
+    render(game);
+  }
+}
+
+function onBuyMeta(id) {
+  if (E.buyMeta(game, id)) {
+    announce(`Adaptation: ${META_BY_ID[id].name}, now level ${game.metaPerks[id]}.`);
     save(game);
     render(game);
   }
@@ -359,6 +422,14 @@ function doWither() {
   if (r) { announce(`Withered. Gained ${fmt(r.gain)} strains. From the muck, something wigglier begins.`, true); pushRecent(game, `Withered for ${fmt(r.gain)} strains.`); save(game); render(game); }
 }
 
+function doMutate() {
+  const gain = E.mutateGain(game);
+  if (!E.canMutate(game) || gain.lt(1)) { announce('Not enough strains banked to Mutate yet.', true); return; }
+  if (!window.confirm('Mutate? The whole lineage rots away — infected, biomass, evolutions, strains AND Virulence all reset — in exchange for Genome. Adaptations and automation are kept.')) return;
+  const r = E.mutate(game);
+  if (r) { announce(`Mutated. Gained ${fmt(r.gain)} genome. A wholly new and worse thing uncoils.`, true); pushRecent(game, `Mutated for ${fmt(r.gain)} genome.`); save(game); render(game); }
+}
+
 function doImport() {
   if (el.saveIO.hidden || !el.saveIO.value.trim()) {
     el.saveIO.hidden = false;
@@ -378,10 +449,13 @@ function doImport() {
 }
 
 function announceStatus() {
+  const meta = metaRevealed(game)
+    ? ` ${speakNumber(game.genome)} genome, adaptation level ${game.metaPerks.adaptation || 0}.`
+    : '';
   announce(
     `${speakNumber(game.infected)} infected, spreading ${speakNumber(E.spreadRate(game))} per second. ` +
     `${speakNumber(game.biomass)} biomass, plus ${speakNumber(E.biomassRate(game))} per second. ` +
-    `${speakNumber(game.strains)} strains, virulence ${speakNumber(E.currentVirulence(game))}.`,
+    `${speakNumber(game.strains)} strains, virulence ${speakNumber(E.currentVirulence(game))}.${meta}`,
     true,
   );
 }

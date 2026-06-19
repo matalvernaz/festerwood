@@ -13,7 +13,7 @@
  * → permanent Virulence → climbs faster still.
  */
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 export const BALANCE = {
   // --- loop timing ---
@@ -53,4 +53,19 @@ export const BALANCE = {
   VIR_BASE: 1.20, // Virulence: spread ×= VIR_BASE^level (compounding, permanent)
   VIR_COST_BASE: 1,
   VIR_COST_GROWTH: 2.2, // steep, to brake the prestige spiral (compounding virulence runs away otherwise)
+
+  // --- automation ---
+  AUTOBUY_COST: 5, // one-time Strains cost for Autocatalysis (auto-buys evolutions); ~a few early withers
+
+  // --- second prestige layer: Mutate -> Genome -> Adaptations ---
+  // Mutate resets all of layer 1 (run + strains + Virulence) but Adaptations
+  // (and automation) persist, so each Mutate cycle re-climbs faster. This is what
+  // gives the runaway numbers a purpose: a nested loop, not a dead end.
+  MUTATE_MIN_STRAINS: 1e3, // Mutate unlocks once you've banked this many strains
+  GENOME_DIVISOR: 1e3,
+  GENOME_EXP: 0.5, // genome = floor((strains / DIVISOR)^EXP)
+  ADAPT_SPREAD: 2, // ×spread per Adaptation level (global, survives Mutate)
+  ADAPT_BIOMASS: 2, // ×biomass per Adaptation level
+  ADAPT_COST_BASE: 1,
+  ADAPT_COST_GROWTH: 3,
 };

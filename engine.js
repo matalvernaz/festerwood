@@ -13,10 +13,11 @@
  */
 
 import { BALANCE } from './balance.js';
-import { EVOLUTIONS, ACHIEVEMENTS, PERKS } from './content.js';
+import { EVOLUTIONS, ACHIEVEMENTS, PERKS, METAPERKS } from './content.js';
 
 const EVO_BY_ID = Object.fromEntries(EVOLUTIONS.map(e => [e.id, e]));
 const PERK_BY_ID = Object.fromEntries(PERKS.map(p => [p.id, p]));
+const META_BY_ID = Object.fromEntries(METAPERKS.map(m => [m.id, m]));
 
 // --------------------------------------------------------------------------
 // Multipliers — rebuilt from scratch every time, never stored in the save.
@@ -32,6 +33,10 @@ export function recompute(state) {
   for (const p of PERKS) {
     const lvl = state.perks[p.id] || 0;
     if (lvl > 0) p.apply(mult, lvl);
+  }
+  for (const mp of METAPERKS) {
+    const lvl = state.metaPerks[mp.id] || 0;
+    if (lvl > 0) mp.apply(mult, lvl);
   }
   for (const e of EVOLUTIONS) {
     const lvl = state.evolutions[e.id] || 0;
@@ -91,6 +96,8 @@ export function tick(state, dtSeconds) {
   if (state.infected.gt(state.peakInfectedThisRun)) state.peakInfectedThisRun = state.infected;
   if (state.peakInfectedThisRun.gt(state.stats.peakInfectedAllTime)) state.stats.peakInfectedAllTime = state.peakInfectedThisRun;
 
+  if (state.perks.autobuy) autoBuy(state);
+
   checkAchievements(state, events);
   return events;
 }
@@ -131,6 +138,19 @@ export function buyEvolution(state, id) {
   return true;
 }
 
+/** Auto-buy every affordable evolution (enabled by the Autocatalysis perk). Returns the count bought. */
+export function autoBuy(state) {
+  if (!state.perks.autobuy) return 0;
+  let n = 0, bought = true;
+  while (bought && n < 100000) { // bounded: a huge offline biomass haul can afford many levels at once
+    bought = false;
+    for (const e of EVOLUTIONS) {
+      if (canBuyEvolution(state, e.id)) { buyEvolution(state, e.id); bought = true; n++; }
+    }
+  }
+  return n;
+}
+
 // --------------------------------------------------------------------------
 // Perks (Strains, permanent shop — v1 ships only Virulence)
 // --------------------------------------------------------------------------
@@ -152,6 +172,31 @@ export function buyPerk(state, id) {
   const lvl = state.perks[id] || 0;
   state.strains = state.strains.sub(perkCost(p, lvl));
   state.perks[id] = lvl + 1;
+  recompute(state);
+  return true;
+}
+
+// --------------------------------------------------------------------------
+// Meta-perks (Genome, the second prestige layer — survive Mutate)
+// --------------------------------------------------------------------------
+
+export function metaCost(mp, level) {
+  return new Decimal(mp.cost(level));
+}
+
+export function canBuyMeta(state, id) {
+  const mp = META_BY_ID[id];
+  const lvl = state.metaPerks[id] || 0;
+  if (mp.maxLevel && lvl >= mp.maxLevel) return false;
+  return state.genome.gte(metaCost(mp, lvl));
+}
+
+export function buyMeta(state, id) {
+  if (!canBuyMeta(state, id)) return false;
+  const mp = META_BY_ID[id];
+  const lvl = state.metaPerks[id] || 0;
+  state.genome = state.genome.sub(metaCost(mp, lvl));
+  state.metaPerks[id] = lvl + 1;
   recompute(state);
   return true;
 }
@@ -194,6 +239,44 @@ export function wither(state) {
   state.biomass = new Decimal(0);
   state.evolutions = {};
   state.peakInfectedThisRun = new Decimal(BALANCE.START_INFECTED);
+  recompute(state);
+  return { gain };
+}
+
+// --------------------------------------------------------------------------
+// Deeper prestige: Mutate (reset all of layer 1 for Genome)
+// --------------------------------------------------------------------------
+
+/** Genome a Mutate would pay out right now, from strains banked. */
+export function mutateGain(state) {
+  if (state.strains.lt(BALANCE.MUTATE_MIN_STRAINS)) return new Decimal(0);
+  return state.strains.div(BALANCE.GENOME_DIVISOR).pow(BALANCE.GENOME_EXP).floor();
+}
+
+export function canMutate(state) {
+  return state.strains.gte(BALANCE.MUTATE_MIN_STRAINS);
+}
+
+/**
+ * The deeper reset: rot the whole of layer 1 (run + strains + non-meta perks like
+ * Virulence) for Genome. Meta-perks (Adaptation, Autocatalysis), genome, and
+ * achievements survive — so the next cycle climbs back faster.
+ */
+export function mutate(state) {
+  if (!canMutate(state)) return null;
+  const gain = mutateGain(state);
+  state.genome = state.genome.add(gain);
+  state.stats.mutateCount = (state.stats.mutateCount || 0) + 1;
+
+  state.infected = new Decimal(BALANCE.START_INFECTED);
+  state.biomass = new Decimal(0);
+  state.evolutions = {};
+  state.peakInfectedThisRun = new Decimal(BALANCE.START_INFECTED);
+  state.strains = new Decimal(0);
+  const kept = {};
+  for (const p of PERKS) if (p.meta && state.perks[p.id]) kept[p.id] = state.perks[p.id];
+  state.perks = kept;
+
   recompute(state);
   return { gain };
 }

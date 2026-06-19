@@ -21,20 +21,23 @@ export function defaultState() {
 
     // currencies (Decimal)
     biomass: new Decimal(0), // run — spend on evolutions
-    strains: new Decimal(0), // prestige — spend on Virulence
+    strains: new Decimal(0), // prestige 1 (from Wither) — spend on Virulence
+    genome: new Decimal(0), // prestige 2 (from Mutate) — spend on Adaptations
 
     // run tracking — peak infected this run is the Wither payout metric
     peakInfectedThisRun: new Decimal(BALANCE.START_INFECTED),
 
     // purchases
     evolutions: {}, // id -> level (this run; cleared on Wither)
-    perks: {}, // id -> level (permanent)
+    perks: {}, // id -> level (Strains; non-meta perks reset on Mutate)
+    metaPerks: {}, // id -> level (Genome; survive Mutate)
     achievements: {}, // id -> true (permanent)
 
     // permanent stats
     stats: {
       totalCoughs: 0,
       witherCount: 0,
+      mutateCount: 0,
       peakInfectedAllTime: new Decimal(BALANCE.START_INFECTED),
       playSeconds: 0,
     },

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Festerwood — a lovingly disgusting plague</title>
-  <link rel="stylesheet" href="style.css?v=6">
+  <link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
   <a class="skip" href="#status-sec">Skip to status</a>
@@ -29,6 +29,7 @@
         <button id="cough-btn" type="button">Cough (C)</button>
         <button id="status-btn" type="button">Read status aloud (S)</button>
         <button id="wither-btn" type="button" hidden>Wither (W)</button>
+        <button id="mutate-btn" type="button" hidden>Mutate (M)</button>
       </div>
     </section>
 
@@ -42,6 +43,12 @@
       <h2 id="perk-h">Strains — permanent perks</h2>
       <p id="strain-line" class="subhead">…</p>
       <ul id="perk-list" class="cards"></ul>
+    </section>
+
+    <section id="meta-sec" aria-labelledby="meta-h" hidden>
+      <h2 id="meta-h">Adaptations — survive every Mutate</h2>
+      <p id="genome-line" class="subhead">…</p>
+      <ul id="meta-list" class="cards"></ul>
     </section>
 
     <details id="ach-sec" hidden>
@@ -75,6 +82,6 @@
 
   <!-- break_eternity installs the global `Decimal`; it must run before the modules. -->
   <script src="vendor/break_eternity.min.js"></script>
-  <script type="module" src="main.js?v=6"></script>
+  <script type="module" src="main.js?v=7"></script>
 </body>
 </html>

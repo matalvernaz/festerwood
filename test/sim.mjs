@@ -16,8 +16,9 @@ globalThis.Decimal = require('../vendor/break_eternity.min.js');
 const { defaultState } = await import('../state.js');
 const {
   recompute, tick, cough, spreadRate, biomassRate, currentVirulence,
-  canBuyEvolution, buyEvolution, canBuyPerk, buyPerk,
+  canBuyEvolution, buyEvolution, canBuyPerk, buyPerk, autoBuy,
   canWither, wither, witherGain,
+  canMutate, mutate, mutateGain, canBuyMeta, buyMeta,
 } = await import('../engine.js');
 const { EVOLUTIONS } = await import('../content.js');
 const { BALANCE } = await import('../balance.js');
@@ -96,6 +97,48 @@ console.log('Festerwood sim test\n');
   assert(currentVirulence(s).toNumber() > v0, 'Virulence raises the permanent spread multiplier');
 }
 
+// --- second prestige: Mutate resets layer 1 for Genome; Adaptations persist --
+{
+  const s = defaultState();
+  recompute(s);
+  s.strains = new Decimal(1e6);
+  s.perks.virulence = 5;
+  s.perks.autobuy = 1; // meta perk — should survive Mutate
+  recompute(s);
+
+  assert(canMutate(s) && mutateGain(s).gt(0), 'Mutate unlocks once strains are banked');
+  const g = mutateGain(s);
+  mutate(s);
+  assert(s.genome.gte(g), 'Mutate banks the previewed genome');
+  assert(s.strains.eq(0) && !s.perks.virulence, 'Mutate resets strains and Virulence (layer 1)');
+  assert(s.perks.autobuy === 1, 'Autocatalysis (meta) survives Mutate');
+  assert(s.infected.eq(BALANCE.START_INFECTED), 'Mutate reseeds the infection');
+
+  s.genome = new Decimal(100);
+  const spread0 = s.mult.spread.toNumber();
+  assert(canBuyMeta(s, 'adaptation') && buyMeta(s, 'adaptation'), 'Adaptation is buyable with genome');
+  assert(s.mult.spread.toNumber() > spread0, 'Adaptation raises the spread multiplier');
+  s.strains = new Decimal(1e6); recompute(s);
+  mutate(s);
+  assert((s.metaPerks.adaptation || 0) >= 1, 'Adaptation survives a Mutate');
+}
+
+// --- automation: Autocatalysis auto-buys evolutions in the tick --------------
+{
+  const s = defaultState();
+  recompute(s);
+  s.biomass = new Decimal(1e6);
+  tick(s, 0.1);
+  assert((s.evolutions.contagion || 0) === 0 && (s.evolutions.potency || 0) === 0, 'no auto-buy without Autocatalysis');
+
+  s.perks.autobuy = 1;
+  recompute(s);
+  s.biomass = new Decimal(1e6);
+  const n = autoBuy(s);
+  assert(n > 0 && ((s.evolutions.contagion || 0) > 0 || (s.evolutions.potency || 0) > 0), 'Autocatalysis auto-buys evolutions');
+  assert(s.biomass.lt(1e6), 'auto-buy actually spends biomass');
+}
+
 // --- idle pacing harness -----------------------------------------------------
 // A greedy bot: each sim-second buy every affordable evolution + Virulence, and
 // Wither when a Wither would at least double total strains. Prints pacing; the
@@ -109,6 +152,8 @@ function buyAll(s) {
     any = false;
     for (const e of EVOLUTIONS) if (canBuyEvolution(s, e.id)) { buyEvolution(s, e.id); any = true; }
     while (canBuyPerk(s, 'virulence')) { buyPerk(s, 'virulence'); any = true; }
+    if (canBuyPerk(s, 'autobuy')) { buyPerk(s, 'autobuy'); any = true; }
+    while (canBuyMeta(s, 'adaptation')) { buyMeta(s, 'adaptation'); any = true; }
   }
 }
 

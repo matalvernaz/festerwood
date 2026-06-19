@@ -43,7 +43,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 
 const { defaultState } = await import('../state.js');
 const E = await import('../engine.js');
-const { EVOLUTIONS } = await import('../content.js');
+const { EVOLUTIONS, METAPERKS } = await import('../content.js');
 const { initA11y } = await import('../a11y.js');
 const { buildUI, render } = await import('../ui.js');
 
@@ -59,13 +59,16 @@ buildUI(s);
 render(s);
 
 assert(byId['evo-list'].children.length === EVOLUTIONS.length, `evolution list built (${EVOLUTIONS.length} cards)`);
+assert(byId['meta-list'].children.length === METAPERKS.length, `adaptations list built (${METAPERKS.length} cards)`);
 assert(byId['status-line']._text.includes('Infected'), 'status line leads with the infected count');
 
 // --- disclosure: fresh game hides everything not yet relevant ---
 assert(byId['evo-sec'].hidden === true, 'Evolutions section hidden at start');
 assert(byId['perk-sec'].hidden === true, 'Strains section hidden at start');
+assert(byId['meta-sec'].hidden === true, 'Adaptations section hidden at start');
 assert(byId['ach-sec'].hidden === true, 'Achievements section hidden at start');
 assert(byId['wither-btn'].hidden === true, 'Wither button hidden at start');
+assert(byId['mutate-btn'].hidden === true, 'Mutate button hidden at start');
 
 // --- reveal on thresholds ---
 s.biomass = new Decimal(100); // enough to be near the first evolution
@@ -96,6 +99,12 @@ assert(E.currentVirulence(s).gt(1), 'Virulence climbs with strain spending');
 s.peakInfectedThisRun = new Decimal(1e9);
 render(s);
 assert(byId['wither-btn'].hidden === false, 'Wither button shows once peak infected qualifies');
+
+// --- second prestige layer surfaces once strains qualify ---
+s.strains = new Decimal(1e6);
+render(s);
+assert(byId['meta-sec'].hidden === false, 'Adaptations section revealed once Mutate qualifies');
+assert(byId['mutate-btn'].hidden === false, 'Mutate button shows once strains qualify');
 
 console.log(fails ? `\n${fails} CHECK(S) FAILED` : '\nDOM SMOKE + DISCLOSURE PASSED');
 process.exit(fails ? 1 : 0);

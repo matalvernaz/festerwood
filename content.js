@@ -54,6 +54,30 @@ export const PERKS = [
     desc: () => `+${Math.round((BALANCE.VIR_BASE - 1) * 100)}% spread, compounding`,
     apply: (m, l) => { m.spread = m.spread.mul(Decimal.pow(BALANCE.VIR_BASE, l)); },
   },
+  {
+    id: 'autobuy',
+    name: 'Autocatalysis',
+    maxLevel: 1,
+    meta: true, // a QoL unlock — survives Mutate
+    cost: () => BALANCE.AUTOBUY_COST,
+    desc: () => 'the plague evolves itself — auto-buys every affordable Evolution, forever',
+    apply: () => {}, // behavioural perk; its effect lives in engine.tick (see autoBuy)
+  },
+];
+
+/**
+ * Meta-perks — the SECOND prestige layer, bought with Genome (from Mutate) and
+ * kept through every Mutate. Adaptation is a permanent global multiplier, so each
+ * Mutate cycle climbs back faster than the last.
+ */
+export const METAPERKS = [
+  {
+    id: 'adaptation',
+    name: 'Adaptation',
+    cost: l => Math.ceil(BALANCE.ADAPT_COST_BASE * Math.pow(BALANCE.ADAPT_COST_GROWTH, l)),
+    desc: () => `×${BALANCE.ADAPT_SPREAD} spread and ×${BALANCE.ADAPT_BIOMASS} biomass, forever (survives Mutate)`,
+    apply: (m, l) => { m.spread = m.spread.mul(Decimal.pow(BALANCE.ADAPT_SPREAD, l)); m.biomass = m.biomass.mul(Decimal.pow(BALANCE.ADAPT_BIOMASS, l)); },
+  },
 ];
 
 /** Achievements. Some grant a real, permanent multiplier via `bonus(mult)` — milestone bonuses, not just badges. */
