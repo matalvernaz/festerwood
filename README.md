@@ -27,10 +27,14 @@ A pure idle. One number — **infected** — climbs on its own. No zones, no cap
   without instantly running to infinity. **Cough** for a manual burst early on.
 - The infected shed **Biomass**.
 - Biomass buys repeatable **Evolutions** — *Contagion* (spread faster) and
-  *Potency* (more biomass per host). Level them forever.
+  *Potency* (more biomass per host). Level them forever. Unlock **Autocatalysis**
+  (a Strains perk) and the plague buys them itself — fully hands-free idle.
 - When the numbers get silly, **Wither**: rot the run to mulch for **Strains**,
-  then spend them on **Virulence** — a permanent, compounding spread boost. Rot,
-  regrow, faster each time. That's the long game.
+  then spend them on **Virulence** — a permanent, compounding spread boost.
+- Bank enough strains and **Mutate**: a deeper reset that rots strains and
+  Virulence away for **Genome**, spent on **Adaptations** (permanent global
+  ×spread and ×biomass that survive every Mutate). Three nested tiers —
+  Evolutions → Virulence → Adaptations — each loop re-climbing faster.
 
 ## Accessibility
 
@@ -45,7 +49,7 @@ This is a first-class concern, not a coat of paint:
   to the…") instead of "ee15".
 
 **Keys:** <kbd>C</kbd> cough · <kbd>S</kbd> status · <kbd>R</kbd> recap ·
-<kbd>W</kbd> Wither.
+<kbd>W</kbd> Wither · <kbd>M</kbd> Mutate.
 
 ## Tests
 
@@ -78,10 +82,10 @@ Vanilla JS ES modules, no bundler. `break_eternity.js` (vendored) provides the
 
 ## Roadmap
 
-- **v1 (this):** the pure idle — self-replicating infected, repeatable evolutions
+- **v1:** the pure idle — self-replicating infected, repeatable evolutions
   (Contagion/Potency), and one prestige (Strains → Virulence).
-- **M2:** more repeatable upgrades and a second prestige layer that rescales the
-  runaway (so late numbers stay meaningful), auto-buyers, events, soft-caps to
-  shape the prestige cadence.
+- **M2 (in progress):** ✅ automation (Autocatalysis) and ✅ a second prestige
+  layer (Mutate → Genome → Adaptations). Still to come: events, soft-caps to shape
+  the prestige cadence, more repeatable upgrades, and Genome-tier automation.
 - **M3:** the race against humanity — a **cure** that fights back (the adversarial
   counter-currency).
