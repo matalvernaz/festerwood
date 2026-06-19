@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Festerwood — a lovingly disgusting plague</title>
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
   <a class="skip" href="#status-sec">Skip to status</a>
@@ -40,16 +40,10 @@
       </div>
     </section>
 
-    <section aria-labelledby="gen-h">
-      <h2 id="gen-h">Producers</h2>
-      <p class="hint">Keys 1–4 grow one of each; M buys as many as you can afford.</p>
-      <ul id="gen-list" class="cards"></ul>
-    </section>
-
-    <section id="mut-sec" aria-labelledby="mut-h" hidden>
-      <h2 id="mut-h">Mutation Tree</h2>
+    <section id="evo-sec" aria-labelledby="evo-h" hidden>
+      <h2 id="evo-h">Evolutions</h2>
       <p id="biomass-line" class="subhead">…</p>
-      <div id="mut-tree"></div>
+      <ul id="evo-list" class="cards"></ul>
     </section>
 
     <section id="perk-sec" aria-labelledby="perk-h" hidden>
@@ -89,6 +83,6 @@
 
   <!-- break_eternity installs the global `Decimal`; it must run before the modules. -->
   <script src="vendor/break_eternity.min.js"></script>
-  <script type="module" src="main.js?v=4"></script>
+  <script type="module" src="main.js?v=5"></script>
 </body>
 </html>

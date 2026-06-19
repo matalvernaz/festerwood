@@ -37,8 +37,9 @@ function untag(v) {
 }
 
 function serialize(state) {
-  // Skip the derived multiplier bag; it's rebuilt on load.
-  const { mult, ...rest } = state;
+  // Skip the derived multiplier bag (rebuilt on load) and the transient
+  // world-remade flag (a one-shot notice, never persisted).
+  const { mult, _worldRemade, ...rest } = state;
   return JSON.stringify(tag(rest));
 }
 
@@ -69,7 +70,36 @@ function deepMerge(base, over) {
 }
 
 function migrate(saved) {
-  const merged = deepMerge(defaultState(), saved);
+  const base = defaultState();
+  const merged = deepMerge(base, saved);
+
+  // v1 → v2: the whole game was rebuilt single-engine. An old save's RUN layer
+  // (spores, producers, biomass, tree mutations, current arena) is meaningless
+  // now, so reset the run. Keep the player's banked Strains and achievements +
+  // lifetime stats; the old perk levels (sporous/marrow/…) map to nothing in v2,
+  // so wipe them rather than leave inert ids — the Strains balance is the real
+  // carried-over progress. Then announce a one-time "world remade" notice.
+  if ((saved.version || 1) < 2) {
+    merged.biomass = new Decimal(0);
+    merged.totalDeadThisRun = new Decimal(0);
+    merged.totalEverInfectedThisRun = new Decimal(0);
+    merged.evolutions = {};
+    merged.perks = {}; // old perk ids don't exist in v2; the banked strains carry over instead
+    merged.arenaIndex = 0;
+    merged.population = base.population; // reseat to the Henderson Household
+    merged._exhaustedAnnounced = false;
+    merged._arenaMilestones = [];
+    merged.clearEtaSeconds = Infinity;
+    // Drop fields deepMerge carried over from the old shape (its second loop
+    // copies keys absent from the new default).
+    delete merged.spores;
+    delete merged.generators;
+    delete merged.sporesPerSec;
+    delete merged.mutations;
+    if (merged.stats) delete merged.stats.maxSpores;
+    merged._worldRemade = true;
+  }
+
   merged.version = SAVE_VERSION;
   return merged;
 }

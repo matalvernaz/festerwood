@@ -4,36 +4,36 @@
  * Every mutating action returns plain data (and tick() returns an events array);
  * the UI/main layer is responsible for announcing things. Keeping the engine
  * DOM-free is what lets test/sim.mjs drive it headlessly under Node.
+ *
+ * v1 is single-engine: the infection is the only growth engine. `infectivity`
+ * is the one multiplier that matters — evolutions (biomass) and Virulence
+ * (strains) both feed it. Biomass is earned per newly-infected host; deaths are
+ * cosmetic. Prestige pays out on ever-infected, not deaths.
  */
 
 import { BALANCE } from './balance.js';
-import { GENERATORS, MUTATIONS, ARENAS, ACHIEVEMENTS, PERKS } from './content.js';
+import { EVOLUTIONS, ARENAS, ACHIEVEMENTS, PERKS } from './content.js';
 import { stepEpidemic, isArenaExhausted } from './population.js';
 
-const GEN_BY_ID = Object.fromEntries(GENERATORS.map(g => [g.id, g]));
-const MUT_BY_ID = Object.fromEntries(MUTATIONS.map(m => [m.id, m]));
+const EVO_BY_ID = Object.fromEntries(EVOLUTIONS.map(e => [e.id, e]));
 const PERK_BY_ID = Object.fromEntries(PERKS.map(p => [p.id, p]));
 
 // --------------------------------------------------------------------------
 // Multipliers — rebuilt from scratch every time, never stored in the save.
 // --------------------------------------------------------------------------
 
-/** Recompute `state.mult` from permanent perks, this-run mutations, and achievement bonuses. */
+/** Recompute `state.mult` from permanent perks, this-run evolutions, and achievement bonuses. */
 export function recompute(state) {
   const mult = {
-    spore: new Decimal(1),
-    biomass: new Decimal(1),
-    infectivity: new Decimal(1), // scales transmission (beta)
-    lethality: new Decimal(1), // scales the death hazard
-    genCost: new Decimal(1), // multiplies generator cost (room for a future discount perk)
+    infectivity: new Decimal(1), // the one multiplier: scales spread (power)
   };
 
   for (const p of PERKS) {
     const lvl = state.perks[p.id] || 0;
     if (lvl > 0) p.apply(mult, lvl);
   }
-  for (const m of MUTATIONS) {
-    if (state.mutations[m.id]) m.apply(mult);
+  for (const e of EVOLUTIONS) {
+    if (state.evolutions[e.id]) e.apply(mult);
   }
   for (const a of ACHIEVEMENTS) {
     if (state.achievements[a.id] && a.bonus) a.bonus(mult);
@@ -43,45 +43,28 @@ export function recompute(state) {
   return mult;
 }
 
-/** Current spore production per second (Decimal), used for display and the beta bonus. */
-export function currentSporeRate(state) {
-  const mold = GENERATORS[0];
-  return state.generators[mold.id].count.mul(mold.prod).mul(state.mult.spore);
+/** The current Virulence multiplier (the prestige axis), for display. */
+export function currentVirulence(state) {
+  const lvl = state.perks.virulence || 0;
+  return Decimal.pow(BALANCE.VIR_BASE, lvl);
 }
 
-/** The epidemic's live parameters for the current arena: spread `power` and death hazard. */
+/** The epidemic's live parameters for the current arena: spread `power` and the fixed death hazard. */
 function epiParams(state) {
-  const mult = state.mult;
   const arena = ARENAS[state.arenaIndex];
-  const sporeRate = currentSporeRate(state).toNumber();
-  const sporeFactor = 1 + BALANCE.SPORE_FACTOR_LOG * Math.max(0, Math.log10(sporeRate + 1));
-  const power = (mult.infectivity.toNumber() * sporeFactor) / arena.immunity;
-  const lethality = BALANCE.BASE_LETHALITY * mult.lethality.toNumber();
-  return { power, lethality, sporeFactor };
-}
-
-/**
- * Spread/lethality snapshot for the UI. `stalling` is the legible warning: when
- * the death hazard outstrips the contagion term, hosts die before passing it on,
- * so the clear crawls along on spore pressure alone — ease off lethality.
- */
-export function spreadStats(state) {
-  const { power, lethality } = epiParams(state);
-  return {
-    infectivityMult: state.mult.infectivity,
-    lethalityMult: state.mult.lethality,
-    stalling: state.population.susceptible >= 1 && lethality > power * BALANCE.CONTAGION,
-  };
+  const power = (BALANCE.BASE_INFECTIVITY * state.mult.infectivity.toNumber()) / arena.immunity;
+  const lethality = BALANCE.BASE_LETHALITY; // fixed; cosmetic; never outpaces spread
+  return { power, lethality };
 }
 
 /** Estimated biomass income per second right now (Decimal) — for "affordable in ~Ns" readouts. */
 export function biomassRate(state) {
-  const { lethality } = epiParams(state);
-  const inf = state.population.infected;
-  const deathsPerSec = inf * (1 - Math.exp(-lethality));
-  return new Decimal(deathsPerSec).mul(BALANCE.BIOMASS_PER_DEATH)
-    .add(new Decimal(inf).mul(BALANCE.BIOMASS_PER_INFECTED))
-    .mul(state.mult.biomass);
+  const pop = state.population;
+  if (pop.total <= 0) return new Decimal(0);
+  const { power } = epiParams(state);
+  const foi = power * (BALANCE.PRESSURE + BALANCE.CONTAGION * (pop.infected / pop.total));
+  const newInfPerSec = pop.susceptible * foi;
+  return new Decimal(newInfPerSec).mul(BALANCE.BIOMASS_PER_VICTIM);
 }
 
 // --------------------------------------------------------------------------
@@ -90,8 +73,8 @@ export function biomassRate(state) {
 
 /**
  * Advance the whole game by dt seconds (clamped to the offline cap). Subdivides
- * into fixed sub-steps so the producer cascade and epidemic stay stable even for
- * a large offline dt. Returns an array of {type, text, assertive} events.
+ * into fixed sub-steps so the epidemic stays stable even for a large offline dt.
+ * Returns an array of {type, text, assertive} events.
  */
 export function tick(state, dtSeconds) {
   const events = [];
@@ -108,13 +91,10 @@ export function tick(state, dtSeconds) {
     simStep(state, sdt);
   }
 
-  state.sporesPerSec = currentSporeRate(state);
-  if (state.spores.gt(state.stats.maxSpores)) state.stats.maxSpores = state.spores;
-
   // Clear ETA for the accessible arena readout: time until 95% ever-infected.
   const pop = state.population;
   const dS = (startS - pop.susceptible) / dt; // susceptibles consumed per second
-  const target = 0.05 * pop.total;
+  const target = (1 - BALANCE.EXHAUST_FRACTION) * pop.total;
   state.clearEtaSeconds = pop.susceptible <= target ? 0 : (dS > 1e-9 ? (pop.susceptible - target) / dS : Infinity);
 
   // Progress milestones (skip trivially small arenas where they'd just be noise).
@@ -142,34 +122,20 @@ export function tick(state, dtSeconds) {
   return events;
 }
 
-/** One fixed-size simulation sub-step. */
+/** One fixed-size simulation sub-step: the epidemic, and the biomass it pays. */
 function simStep(state, dt) {
-  const mult = state.mult;
-
-  // Producer cascade, top-down so a unit made this step doesn't also produce this step.
-  for (let i = GENERATORS.length - 1; i >= 1; i--) {
-    const g = GENERATORS[i];
-    const below = GENERATORS[i - 1];
-    const produced = state.generators[g.id].count.mul(g.prod).mul(dt);
-    state.generators[below.id].count = state.generators[below.id].count.add(produced);
-  }
-  // Tier 0 (Mold) -> Spores, with the spore multiplier applied.
-  const mold = GENERATORS[0];
-  const sporeGain = state.generators[mold.id].count.mul(mold.prod).mul(mult.spore).mul(dt);
-  state.spores = state.spores.add(sporeGain);
-
-  // Epidemic.
   const pop = state.population;
   const { power, lethality } = epiParams(state);
-  const { deaths } = stepEpidemic(pop, { power, lethality }, dt);
+  const { newInfections, deaths } = stepEpidemic(pop, { power, lethality }, dt);
 
-  // Biomass: mostly from deaths (so lethality is tempting), with a trickle from
-  // the living infected (so a pure-spread build still earns).
-  if (deaths > 0 || pop.infected > 0) {
-    const fromDeath = new Decimal(deaths).mul(BALANCE.BIOMASS_PER_DEATH);
-    const fromInfected = new Decimal(pop.infected).mul(BALANCE.BIOMASS_PER_INFECTED).mul(dt);
-    state.biomass = state.biomass.add(fromDeath.add(fromInfected).mul(mult.biomass));
+  // Biomass is paid once, when a host first catches it — so income tracks spread,
+  // the one thing the player improves. Ever-infected is also the prestige metric.
+  if (newInfections > 0) {
+    const ni = new Decimal(newInfections);
+    state.biomass = state.biomass.add(ni.mul(BALANCE.BIOMASS_PER_VICTIM));
+    state.totalEverInfectedThisRun = state.totalEverInfectedThisRun.add(ni);
   }
+  // Deaths are cosmetic flavour + feed the death-count achievements.
   if (deaths > 0) {
     const d = new Decimal(deaths);
     state.totalDeadThisRun = state.totalDeadThisRun.add(d);
@@ -190,86 +156,31 @@ function checkAchievements(state, events) {
 }
 
 // --------------------------------------------------------------------------
-// Generators
+// Evolutions (Biomass, flat this-run list)
 // --------------------------------------------------------------------------
 
-/** Total spore cost of buying `n` more of generator `id` from the current count. */
-export function generatorCost(state, id, n) {
-  n = new Decimal(n);
-  const g = GEN_BY_ID[id];
-  const r = BALANCE.GEN_COST_MULT;
-  const base = new Decimal(g.baseCost).mul(state.mult.genCost);
-  const rb = Decimal.pow(r, state.generators[id].bought);
-  const rn = Decimal.pow(r, n);
-  // base * r^bought * (r^n - 1) / (r - 1)
-  return base.mul(rb).mul(rn.sub(1)).div(r - 1);
+/** Flat list: every evolution is available to buy once the section is revealed. */
+export function evolutionUnlocked(state, id) {
+  return !!EVO_BY_ID[id];
 }
 
-/** Largest `n` affordable right now (Decimal). Closed-form so it never loops. */
-export function maxAffordable(state, id) {
-  const g = GEN_BY_ID[id];
-  const r = BALANCE.GEN_COST_MULT;
-  const base = new Decimal(g.baseCost).mul(state.mult.genCost);
-  const rb = Decimal.pow(r, state.generators[id].bought);
-  // spores >= base*rb*(r^n-1)/(r-1)  =>  r^n <= 1 + spores*(r-1)/(base*rb)
-  const rhs = state.spores.mul(r - 1).div(base.mul(rb)).add(1);
-  if (rhs.lte(1)) return new Decimal(0);
-  const n = rhs.ln().div(Math.log(r)).floor();
-  return Decimal.max(0, n);
+export function canBuyEvolution(state, id) {
+  const e = EVO_BY_ID[id];
+  if (!e || state.evolutions[id]) return false;
+  return state.biomass.gte(e.cost);
 }
 
-/**
- * Buy generator `id`. `amount` is a number, a Decimal, or 'max'.
- * @returns {{bought: Decimal, cost?: Decimal}}
- */
-export function buyGenerator(state, id, amount) {
-  let n = amount === 'max' ? maxAffordable(state, id) : new Decimal(amount);
-  if (n.lte(0)) return { bought: new Decimal(0) };
-
-  let cost = generatorCost(state, id, n);
-  if (state.spores.lt(cost)) {
-    // re-clamp (guards against a fixed amount you can't afford, or rounding)
-    n = maxAffordable(state, id);
-    if (n.lte(0)) return { bought: new Decimal(0) };
-    cost = generatorCost(state, id, n);
-    if (state.spores.lt(cost)) return { bought: new Decimal(0) };
-  }
-
-  state.spores = state.spores.sub(cost);
-  const gen = state.generators[id];
-  gen.bought = gen.bought.add(n);
-  gen.count = gen.count.add(n);
-  return { bought: n, cost };
-}
-
-// --------------------------------------------------------------------------
-// Mutations (Biomass, this-run tree)
-// --------------------------------------------------------------------------
-
-/** Are all of a mutation's prerequisites owned (i.e. is the node visible/unlockable)? */
-export function mutationUnlocked(state, id) {
-  const m = MUT_BY_ID[id];
-  return (m.prereqs || []).every(p => state.mutations[p]);
-}
-
-export function canBuyMutation(state, id) {
-  const m = MUT_BY_ID[id];
-  if (!m || state.mutations[id]) return false;
-  if (!mutationUnlocked(state, id)) return false;
-  return state.biomass.gte(m.cost);
-}
-
-export function buyMutation(state, id) {
-  if (!canBuyMutation(state, id)) return false;
-  const m = MUT_BY_ID[id];
-  state.biomass = state.biomass.sub(m.cost);
-  state.mutations[id] = true;
+export function buyEvolution(state, id) {
+  if (!canBuyEvolution(state, id)) return false;
+  const e = EVO_BY_ID[id];
+  state.biomass = state.biomass.sub(e.cost);
+  state.evolutions[id] = true;
   recompute(state);
   return true;
 }
 
 // --------------------------------------------------------------------------
-// Perks (Strains, permanent shop)
+// Perks (Strains, permanent shop — v1 ships only Virulence)
 // --------------------------------------------------------------------------
 
 export function perkCost(p, level) {
@@ -297,9 +208,8 @@ export function buyPerk(state, id) {
 // Manual action
 // --------------------------------------------------------------------------
 
-/** The Cough button: a small spore burst plus a hand-seeded infection. The accessible primary action. */
+/** The Cough button: hand-seed an infection to bootstrap a run before contagion takes over. The accessible primary action. */
 export function cough(state) {
-  state.spores = state.spores.add(BALANCE.COUGH_SPORES.mul(state.mult.spore));
   const pop = state.population;
   const seeded = Math.min(pop.susceptible, BALANCE.COUGH_SEED);
   pop.susceptible -= seeded;
@@ -312,7 +222,7 @@ export function cough(state) {
 // Prestige: Expand (advance an arena) and Wither (hard reset for Strains)
 // --------------------------------------------------------------------------
 
-/** Reset population to arena `idx` (fresh hosts). Does not touch generators/mutations. */
+/** Reset population to arena `idx` (fresh hosts). Does not touch evolutions/perks. */
 export function enterArena(state, idx) {
   state.arenaIndex = idx;
   const total = ARENAS[idx].population;
@@ -323,9 +233,9 @@ export function enterArena(state, idx) {
 
 /** Strains a Wither would pay out right now. Exported so the UI can preview it and gate the button. */
 export function witherGain(state) {
-  const dead = state.totalDeadThisRun;
-  if (dead.lt(BALANCE.MIN_DEAD_TO_WITHER)) return new Decimal(0);
-  return dead.div(BALANCE.STRAIN_DIVISOR).pow(BALANCE.STRAIN_EXP).mul(1 + state.stats.highestArena).floor();
+  const ever = state.totalEverInfectedThisRun;
+  if (ever.lt(BALANCE.MIN_INFECTED_TO_WITHER)) return new Decimal(0);
+  return ever.div(BALANCE.STRAIN_DIVISOR).pow(BALANCE.STRAIN_EXP).floor();
 }
 
 export function canExpand(state) {
@@ -333,9 +243,8 @@ export function canExpand(state) {
 }
 
 /**
- * Advance to the next arena. Pure progression — keeps producers/mutations and
- * pays NO strains (Wither is the sole strain source, so "tiny pocket-change
- * strains" can't muddy the prestige economy).
+ * Advance to the next arena. Pure progression — keeps evolutions and pays NO
+ * strains (Wither is the sole strain source).
  */
 export function expand(state) {
   if (!canExpand(state)) return null;
@@ -351,18 +260,17 @@ export function canWither(state) {
   return state.arenaIndex >= 1 || isArenaExhausted(state.population);
 }
 
-/** Hard reset of the run layers (generators, mutations, spores, biomass, arena) in exchange for a big Strains payout. */
+/** Hard reset of the run layer (evolutions, biomass, arena, run counters) in exchange for a big Strains payout. */
 export function wither(state) {
   if (!canWither(state)) return null;
   const gain = witherGain(state);
   state.strains = state.strains.add(gain);
   state.stats.witherCount++;
 
-  state.spores = new Decimal(0);
   state.biomass = new Decimal(0);
   state.totalDeadThisRun = new Decimal(0);
-  state.mutations = {};
-  for (const g of GENERATORS) state.generators[g.id] = { count: new Decimal(0), bought: new Decimal(0) };
+  state.totalEverInfectedThisRun = new Decimal(0);
+  state.evolutions = {};
   enterArena(state, 0);
   recompute(state);
   return { gain };

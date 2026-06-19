@@ -5,36 +5,33 @@
  * (its identity is stable, so the UI can close over it). Multipliers are NOT
  * stored here — they live in `mult`, rebuilt from scratch by engine.recompute()
  * on load and after every purchase, which is what keeps saves robust.
+ *
+ * v1 is single-engine: two currencies only (biomass, run; strains, prestige).
  */
 
 import { SAVE_VERSION } from './balance.js';
-import { GENERATORS, ARENAS } from './content.js';
+import { ARENAS } from './content.js';
 
 export function defaultState() {
-  const generators = {};
-  for (const g of GENERATORS) generators[g.id] = { count: new Decimal(0), bought: new Decimal(0) };
-
   const total = ARENAS[0].population;
 
   return {
     version: SAVE_VERSION,
 
     // unbounded currencies (Decimal)
-    spores: new Decimal(0),
-    biomass: new Decimal(0),
-    strains: new Decimal(0),
+    biomass: new Decimal(0), // run — spend on evolutions
+    strains: new Decimal(0), // prestige — spend on Virulence
 
     // run tracking
     arenaIndex: 0,
-    totalDeadThisRun: new Decimal(0),
-    sporesPerSec: new Decimal(0), // derived each tick, for display + the status hotkey
+    totalDeadThisRun: new Decimal(0), // cosmetic / badges
+    totalEverInfectedThisRun: new Decimal(0), // the Wither payout metric
 
     // population: plain numbers, bounded by the current arena
     population: { susceptible: total, infected: 0, dead: 0, total },
 
     // purchases
-    generators, // id -> { count, bought }  (count includes cascade-produced units)
-    mutations: {}, // id -> true (this run; cleared on Wither)
+    evolutions: {}, // id -> true (this run; cleared on Wither)
     perks: {}, // id -> level (permanent)
     achievements: {}, // id -> true (permanent)
 
@@ -45,7 +42,6 @@ export function defaultState() {
       witherCount: 0,
       highestArena: 0,
       playSeconds: 0,
-      maxSpores: new Decimal(0), // lifetime peak — makes producer reveals sticky
     },
 
     settings: {

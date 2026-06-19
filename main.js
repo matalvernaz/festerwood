@@ -25,16 +25,24 @@ initA11y();
 buildUI(state);
 render(state);
 
-// Offline catch-up — only for a genuine returning save.
 let greeted = false;
-if (loaded && state.lastTick) {
+
+// First load under the v2 remake: announce once, and skip offline catch-up — the
+// run was reset, so there is nothing meaningful to catch up on.
+if (state._worldRemade) {
+  announce('Festerwood has been remade, smaller and meaner. Your banked strains carried over; everything else begins fresh.', true);
+  pushRecent(state, 'The world was remade — smaller and meaner. Banked strains carried over.');
+  delete state._worldRemade;
+  greeted = true;
+} else if (loaded && state.lastTick) {
+  // Offline catch-up — only for a genuine returning save.
   const offline = (Date.now() - state.lastTick) / 1000;
   if (offline > 5) {
-    const before = { spores: state.spores, biomass: state.biomass, dead: state.stats.totalDeadAllTime };
+    const before = { biomass: state.biomass, dead: state.stats.totalDeadAllTime };
     const evs = tick(state, offline); // capped at BALANCE.OFFLINE_CAP_SECONDS inside
     render(state);
     const mins = offline < 90 ? `${Math.round(offline)}s` : offline < 5400 ? `${Math.round(offline / 60)}m` : `${Math.round(offline / 3600)}h`;
-    let msg = `Welcome back. While you were away (${mins}): +${fmt(state.spores.sub(before.spores))} spores, +${fmt(state.biomass.sub(before.biomass))} biomass, ${fmt(state.stats.totalDeadAllTime.sub(before.dead))} more dead.`;
+    let msg = `Welcome back. While you were away (${mins}): +${fmt(state.biomass.sub(before.biomass))} biomass, ${fmt(state.stats.totalDeadAllTime.sub(before.dead))} more dead.`;
     const cleared = evs.find(e => e.type === 'arena' || e.type === 'victory');
     if (cleared) msg += ' ' + cleared.text;
     announce(msg, true);

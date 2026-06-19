@@ -43,6 +43,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 
 const { defaultState } = await import('../state.js');
 const E = await import('../engine.js');
+const { EVOLUTIONS } = await import('../content.js');
 const { initA11y } = await import('../a11y.js');
 const { buildUI, render } = await import('../ui.js');
 
@@ -57,25 +58,18 @@ initA11y();
 buildUI(s);
 render(s);
 
-assert(byId['gen-list'].children.length === 4, 'four generator cards built');
-assert(byId['mut-tree'].children.length > 0, 'mutation tree built');
-assert(byId['status-line']._text.includes('Spores'), 'status line populated');
+assert(byId['evo-list'].children.length === EVOLUTIONS.length, `evolution list built (${EVOLUTIONS.length} cards)`);
+assert(byId['status-line']._text.includes('Biomass'), 'status line populated with currencies');
 
 // --- disclosure: fresh game hides everything not yet relevant ---
-assert(byId['mut-sec'].hidden === true, 'Mutation section hidden at start');
+assert(byId['evo-sec'].hidden === true, 'Evolutions section hidden at start');
 assert(byId['perk-sec'].hidden === true, 'Strains section hidden at start');
 assert(byId['ach-sec'].hidden === true, 'Achievements section hidden at start');
-assert(byId['gen-list'].children[0].hidden === false, 'Mold (tier 0) shown at start');
-assert(byId['gen-list'].children[1].hidden === true, 'Fungus hidden at start');
 
 // --- reveal on thresholds ---
-s.stats.maxSpores = new Decimal(200); // >= 50% of Fungus baseCost (120)
-render(s);
-assert(byId['gen-list'].children[1].hidden === false, 'Fungus revealed once spores approach its cost');
-
 s.stats.totalDeadAllTime = new Decimal(5); // first death
 render(s);
-assert(byId['mut-sec'].hidden === false, 'Mutation section revealed after first death');
+assert(byId['evo-sec'].hidden === false, 'Evolutions section revealed after first death');
 
 s.stats.witherCount = 1; // first wither
 render(s);
@@ -89,12 +83,13 @@ await wait(60);
 assert(/Unlocked:/.test(byId['sr-polite']._text), 'a reveal was announced to the screen reader');
 
 // --- wealthy state still renders without throwing; Expand surfaces when cleared ---
-s.spores = new Decimal(1e9); s.biomass = new Decimal(1e4); s.strains = new Decimal(1e6);
-E.buyGenerator(s, 'mold', 'max');
-E.buyMutation(s, 't1');
-for (let i = 0; i < 30; i++) E.buyPerk(s, 'sporous');
+s.biomass = new Decimal(1e12); s.strains = new Decimal(1e6);
+E.buyEvolution(s, 'e0');
+E.buyEvolution(s, 'e5'); // out of order: no tree
+for (let i = 0; i < 30; i++) E.buyPerk(s, 'virulence');
 render(s);
 assert(true, 'render survives wealthy state (no throw)');
+assert(E.currentVirulence(s).gt(1), 'Virulence climbs with strain spending');
 
 s.population.dead = s.population.total; s.population.susceptible = 0; s.population.infected = 0;
 render(s);

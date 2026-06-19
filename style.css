@@ -19,7 +19,7 @@
 
 * { box-sizing: border-box; }
 
-/* The hidden attribute MUST win over author display rules (e.g. .mut-node{display:block}),
+/* The hidden attribute MUST win over author display rules (e.g. .evo-node{display:block}),
    or "hidden" locked buttons leak into the page as empty, unlabelled controls. */
 [hidden] { display: none !important; }
 
@@ -74,7 +74,6 @@ h3 { margin: 0.8rem 0 0.3rem; font-size: 1rem; color: var(--accent); }
 
 .cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.55rem; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
 .card { border: 1px solid var(--line); border-radius: 8px; padding: 0.55rem 0.65rem; }
-.card-name { font-weight: 600; margin-bottom: 0.4rem; }
 .row { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 
 button {
@@ -92,9 +91,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 /* affordable / buyable actions get the sickly-green call-to-action treatment */
 button.go { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
 
-.mut-node { display: block; width: 100%; text-align: left; margin: 0.3rem 0; }
-.mut-owned { color: var(--accent); }
-.mut-locked { color: var(--muted); }
+.evo-node { display: block; width: 100%; text-align: left; margin: 0.3rem 0; }
+.evo-owned { color: var(--accent); }
 
 #expand-btn, #wither-btn { font-weight: 600; }
 
